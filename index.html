@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Marathon Trainer</title>
-    <link rel="stylesheet" href="styles.css?v=5">
+    <link rel="stylesheet" href="styles.css?v=7">
   </head>
   <body>
     <main class="app">
@@ -124,6 +124,22 @@
           <div id="activity-list" class="activity-list"></div>
         </section>
 
+        <section class="panel assessment-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Fitness Assessment</h2>
+              <p>Plain-English read on where you are versus the goal currently entered.</p>
+            </div>
+            <button id="update-after-workout" type="button">Update after workout</button>
+          </div>
+          <div id="assessment" class="assessment"></div>
+          <div class="strava-box">
+            <strong>Strava sync</strong>
+            <span>To pull the latest workout from Strava, this app needs a small backend and Strava OAuth credentials. Scraping Strava directly from this page would be brittle and unsafe.</span>
+            <button id="strava-button" type="button">Configure Strava later</button>
+          </div>
+        </section>
+
         <section class="panel plan-panel">
           <div class="panel-heading">
             <div>
@@ -136,6 +152,6 @@
         </section>
       </section>
     </main>
-    <script src="script.js?v=5"></script>
+    <script src="script.js?v=7"></script>
   </body>
 </html>

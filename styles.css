@@ -84,6 +84,7 @@ h2 {
   grid-template-columns: 340px minmax(0, 1fr);
   grid-template-areas:
     "setup import"
+    "setup assessment"
     "setup plan";
   gap: 12px;
 }
@@ -111,6 +112,11 @@ h2 {
 
 .plan-panel {
   grid-area: plan;
+  padding: 14px;
+}
+
+.assessment-panel {
+  grid-area: assessment;
   padding: 14px;
 }
 
@@ -171,6 +177,57 @@ button.primary {
   color: var(--green);
   background: var(--soft);
   border: 1px solid #c9dfd0;
+}
+
+#update-after-workout,
+#strava-button {
+  color: var(--green);
+  background: var(--soft);
+  border: 1px solid #c9dfd0;
+}
+
+.assessment {
+  display: grid;
+  gap: 10px;
+}
+
+.assessment-card,
+.strava-box {
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfdfb;
+}
+
+.assessment-card h3 {
+  margin-bottom: 5px;
+  font-size: 1rem;
+}
+
+.assessment-card p,
+.strava-box span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.assessment-card.good {
+  border-left: 4px solid var(--green);
+}
+
+.assessment-card.watch {
+  border-left: 4px solid var(--orange);
+}
+
+.assessment-card.risk {
+  border-left: 4px solid var(--red);
+}
+
+.strava-box {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .drop-zone {
@@ -336,6 +393,7 @@ button.primary {
     grid-template-areas:
       "setup"
       "import"
+      "assessment"
       "plan";
   }
 

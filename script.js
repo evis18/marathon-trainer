@@ -26,6 +26,8 @@ const els = {
   maxHr: document.querySelector("#max-hr"),
   generatePlan: document.querySelector("#generate-plan"),
   recalculate: document.querySelector("#recalculate"),
+  updateAfterWorkout: document.querySelector("#update-after-workout"),
+  stravaButton: document.querySelector("#strava-button"),
   dropZone: document.querySelector("#drop-zone"),
   fileInput: document.querySelector("#file-input"),
   folderInput: document.querySelector("#folder-input"),
@@ -34,6 +36,7 @@ const els = {
   planNote: document.querySelector("#plan-note"),
   readiness: document.querySelector("#readiness"),
   projection: document.querySelector("#projection"),
+  assessment: document.querySelector("#assessment"),
 };
 
 function parseTimeToSeconds(value) {
@@ -66,14 +69,60 @@ function riegelPredict(timeSeconds, fromMiles, toMiles) {
   return timeSeconds * Math.pow(toMiles / fromMiles, 1.06);
 }
 
+function recentActivities(days = 183) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  cutoff.setHours(0, 0, 0, 0);
+  return state.activities
+    .filter((activity) => {
+      const date = new Date(activity.date);
+      return !Number.isNaN(date.getTime()) && date >= cutoff;
+    })
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+}
+
+function activityMetrics() {
+  const activities = recentActivities();
+  if (!activities.length) return null;
+
+  const newestDate = new Date(activities.at(-1).date);
+  const daysSinceLatest = Math.max(0, Math.round((Date.now() - newestDate.getTime()) / 86400000));
+  const last28Cutoff = new Date();
+  last28Cutoff.setDate(last28Cutoff.getDate() - 28);
+  const last28 = activities.filter((activity) => new Date(activity.date) >= last28Cutoff);
+  const totalMiles = activities.reduce((sum, activity) => sum + activity.miles, 0);
+  const last28Miles = last28.reduce((sum, activity) => sum + activity.miles, 0);
+  const weeklyMiles = last28Miles / 4;
+  const longRun = Math.max(...activities.map((activity) => activity.miles));
+  const recentLongRun = Math.max(0, ...last28.map((activity) => activity.miles));
+  const avgHrActivities = activities.filter((activity) => activity.avgHr);
+  const avgHr = avgHrActivities.reduce((sum, activity) => sum + activity.avgHr, 0) / Math.max(1, avgHrActivities.length);
+  const bestEffort = activities
+    .filter((activity) => activity.miles >= 2 && activity.seconds >= 600)
+    .sort((a, b) => (a.seconds / a.miles) - (b.seconds / b.miles))[0];
+
+  return {
+    count: activities.length,
+    totalMiles,
+    weeklyMiles,
+    longRun,
+    recentLongRun,
+    avgHr,
+    bestEffort,
+    latest: activities.at(-1),
+    daysSinceLatest,
+  };
+}
+
 function collectSettings() {
+  const metrics = activityMetrics();
   return {
     race: els.raceDistance.value,
     goalSeconds: parseTimeToSeconds(els.goalTime.value),
     weeks: Number(els.planLength.value),
     runsPerWeek: Number(els.runsPerWeek.value),
-    weeklyMileage: Number(els.weeklyMileage.value),
-    longRun: Number(els.longRun.value),
+    weeklyMileage: metrics ? Math.max(1, Math.round(metrics.weeklyMiles)) : Number(els.weeklyMileage.value),
+    longRun: metrics ? Math.max(1, Math.round(metrics.longRun * 10) / 10) : Number(els.longRun.value),
     recentDistance: els.recentDistance.value,
     recentSeconds: parseTimeToSeconds(els.recentTime.value),
     restingHr: Number(els.restingHr.value),
@@ -84,10 +133,15 @@ function collectSettings() {
 function fitnessFromInputs(settings) {
   const raceMiles = raceDistances[settings.race];
   const goalPace = settings.goalSeconds / raceMiles;
+  const metrics = activityMetrics();
   const recentMiles = raceDistances[settings.recentDistance] || raceMiles;
-  const recentPrediction = settings.recentDistance === "none" || !settings.recentSeconds
+  const bestEffortPrediction = metrics?.bestEffort
+    ? riegelPredict(metrics.bestEffort.seconds, metrics.bestEffort.miles, raceMiles)
+    : null;
+  const inputPrediction = settings.recentDistance === "none" || !settings.recentSeconds
     ? settings.goalSeconds * 1.18
     : riegelPredict(settings.recentSeconds, recentMiles, raceMiles);
+  const recentPrediction = bestEffortPrediction || inputPrediction;
   const mileageRatio = Math.min(1.25, settings.weeklyMileage / Math.max(10, raceMiles * 0.9));
   const longRunRatio = Math.min(1.25, settings.longRun / Math.max(4, raceMiles * 0.45));
   const readiness = Math.round(Math.max(35, Math.min(100, 100 - ((recentPrediction - settings.goalSeconds) / settings.goalSeconds) * 70 + (mileageRatio - 0.75) * 18 + (longRunRatio - 0.75) * 16)));
@@ -97,6 +151,7 @@ function fitnessFromInputs(settings) {
     goalPace,
     recentPrediction,
     readiness,
+    metrics,
     easyPace: goalPace + 75,
     steadyPace: goalPace + 35,
     tempoPace: goalPace - 5,
@@ -112,6 +167,8 @@ function hrRange(settings, low, high) {
 }
 
 function workout(type, miles, detail, pace, hr, week, day) {
+  const paceTypes = ["Tempo", "Intervals", "Steady", "Race pace"];
+  const targetMode = paceTypes.includes(type) ? "pace" : "hr";
   return {
     id: `${week}-${day}-${type.replace(/\W+/g, "-")}`,
     type,
@@ -119,6 +176,7 @@ function workout(type, miles, detail, pace, hr, week, day) {
     detail,
     pace,
     hr,
+    targetMode,
     status: "planned",
   };
 }
@@ -143,14 +201,14 @@ function buildPlan() {
     const workouts = [];
     const easyMiles = Math.max(2, (weeklyMiles - longRunMiles - 5) / Math.max(1, settings.runsPerWeek - 2));
 
-    workouts.push(workout("Easy", easyMiles, "Relaxed aerobic run", formatPace(fitness.easyPace), hrRange(settings, 0.62, 0.76), week, 1));
-    workouts.push(workout(quality, Math.min(8, weeklyMiles * 0.18), quality === "Tempo" ? "Warm up, controlled tempo block, cool down" : "Short repeats with full control", formatPace(quality === "Tempo" ? fitness.tempoPace : fitness.intervalPace), hrRange(settings, 0.78, 0.9), week, 2));
+    workouts.push(workout("Easy", easyMiles, "Run by heart rate. Keep this conversational, even if pace floats.", formatPace(fitness.easyPace), hrRange(settings, 0.62, 0.76), week, 1));
+    workouts.push(workout(quality, Math.min(8, weeklyMiles * 0.18), quality === "Tempo" ? "Run by pace after warming up. Controlled, not a race." : "Run by pace for the repeats; recover fully enough to keep form.", formatPace(quality === "Tempo" ? fitness.tempoPace : fitness.intervalPace), hrRange(settings, 0.78, 0.9), week, 2));
 
-    if (settings.runsPerWeek >= 4) workouts.push(workout("Easy", easyMiles, "Keep this one comfortable", formatPace(fitness.easyPace), hrRange(settings, 0.62, 0.76), week, 3));
-    if (settings.runsPerWeek >= 5) workouts.push(workout("Steady", Math.min(7, easyMiles + 1), "Smooth but not hard", formatPace(fitness.steadyPace), hrRange(settings, 0.72, 0.82), week, 4));
-    if (settings.runsPerWeek >= 6) workouts.push(workout("Recovery", Math.max(2, easyMiles - 1), "Very easy shakeout", formatPace(fitness.easyPace + 35), hrRange(settings, 0.58, 0.7), week, 5));
+    if (settings.runsPerWeek >= 4) workouts.push(workout("Easy", easyMiles, "Run by heart rate. Keep this one comfortable.", formatPace(fitness.easyPace), hrRange(settings, 0.62, 0.76), week, 3));
+    if (settings.runsPerWeek >= 5) workouts.push(workout("Steady", Math.min(7, easyMiles + 1), "Run by pace, smooth but not hard.", formatPace(fitness.steadyPace), hrRange(settings, 0.72, 0.82), week, 4));
+    if (settings.runsPerWeek >= 6) workouts.push(workout("Recovery", Math.max(2, easyMiles - 1), "Run by heart rate. This should feel almost too easy.", formatPace(fitness.easyPace + 35), hrRange(settings, 0.58, 0.7), week, 5));
 
-    workouts.push(workout("Long run", longRunMiles, "Stay controlled; finish with good form", formatPace(fitness.easyPace + 15), hrRange(settings, 0.65, 0.8), week, 6));
+    workouts.push(workout("Long run", longRunMiles, "Run by heart rate. Stay controlled; finish with good form.", formatPace(fitness.easyPace + 15), hrRange(settings, 0.65, 0.8), week, 6));
     plan.push({ week, weeklyMiles: Math.round(weeklyMiles), workouts });
   }
 
@@ -159,6 +217,69 @@ function buildPlan() {
   updateSummary(fitness);
   save();
   render();
+}
+
+function goalName(race) {
+  return { "10k": "10K", half: "half marathon", marathon: "marathon" }[race] ?? race;
+}
+
+function readinessLabel(score) {
+  if (score >= 85) return "You are close";
+  if (score >= 70) return "This is realistic with focused training";
+  if (score >= 55) return "This is possible, but the plan needs to be careful";
+  return "This is a stretch goal right now";
+}
+
+function assessmentCards() {
+  const settings = collectSettings();
+  const fitness = fitnessFromInputs(settings);
+  const metrics = fitness.metrics;
+  const goalPace = formatPace(fitness.goalPace);
+  const projectedGap = fitness.recentPrediction - settings.goalSeconds;
+  const gapText = projectedGap <= 0
+    ? `Your current projection is already about ${formatTime(Math.abs(projectedGap))} faster than the goal.`
+    : `Your current projection is about ${formatTime(projectedGap)} slower than the goal.`;
+
+  if (!metrics) {
+    return [{
+      tone: "watch",
+      title: "I need your workout history",
+      text: `I can make a draft plan from the form fields, but I cannot honestly assess your current fitness until you import recent workouts.`,
+    }];
+  }
+
+  const volumeTone = metrics.weeklyMiles >= settings.weeklyMileage * 0.9 ? "good" : "watch";
+  const longRunNeed = settings.race === "marathon" ? 16 : settings.race === "half" ? 10 : 6;
+  const longRunTone = metrics.recentLongRun >= longRunNeed * 0.75 ? "good" : "watch";
+  const recencyTone = metrics.daysSinceLatest <= 5 ? "good" : metrics.daysSinceLatest <= 12 ? "watch" : "risk";
+
+  return [
+    {
+      tone: fitness.readiness >= 70 ? "good" : fitness.readiness >= 55 ? "watch" : "risk",
+      title: `${readinessLabel(fitness.readiness)} (${fitness.readiness}% readiness)`,
+      text: `For a ${goalName(settings.race)} goal of ${formatTime(settings.goalSeconds)}, you need roughly ${goalPace}. ${gapText}`,
+    },
+    {
+      tone: volumeTone,
+      title: "Your current training base",
+      text: `I see ${metrics.count} recent runs, about ${Math.round(metrics.weeklyMiles)} miles per week over the last 4 weeks, and ${Math.round(metrics.totalMiles)} miles in the six-month window.`,
+    },
+    {
+      tone: longRunTone,
+      title: "Endurance base",
+      text: `Your longest recent run is ${metrics.longRun.toFixed(1)} miles. The plan will build from there rather than pretending you can jump straight to race-specific long runs.`,
+    },
+    {
+      tone: recencyTone,
+      title: "Latest workout",
+      text: `Your newest imported workout is ${metrics.latest.miles.toFixed(2)} miles on ${metrics.latest.date}, averaging ${formatPace(metrics.latest.seconds / metrics.latest.miles)}${metrics.latest.avgHr ? ` at ${metrics.latest.avgHr} bpm` : ""}.`,
+    },
+    {
+      tone: "good",
+      title: "How the plan will target effort",
+      text: "Easy, recovery, and long runs should be controlled by heart rate. Tempo, intervals, steady work, and race-pace sessions should be controlled by pace.",
+    },
+  ];
 }
 
 function activityAdjustment() {
@@ -176,6 +297,15 @@ function activityAdjustment() {
 function updateSummary(fitness = fitnessFromInputs(collectSettings())) {
   els.readiness.textContent = `Readiness ${fitness.readiness}%`;
   els.projection.textContent = `Projected ${formatTime(fitness.recentPrediction)}`;
+}
+
+function renderAssessment() {
+  els.assessment.replaceChildren(...assessmentCards().map((card) => {
+    const article = document.createElement("article");
+    article.className = `assessment-card ${card.tone}`;
+    article.innerHTML = `<h3>${card.title}</h3><p>${card.text}</p>`;
+    return article;
+  }));
 }
 
 function renderActivities() {
@@ -237,11 +367,18 @@ function renderPlan() {
 function renderWorkout(item) {
   const card = document.createElement("article");
   card.className = `workout status-${item.status}`;
+  const target = item.targetMode === "pace"
+    ? `Target pace: ${item.pace}`
+    : `Target heart rate: ${item.hr}`;
+  const secondary = item.targetMode === "pace"
+    ? `HR guardrail: ${item.hr}`
+    : `Pace guardrail: ${item.pace}`;
   card.innerHTML = `
     <span class="tag">${item.status}</span>
     <h3>${item.type} • ${item.miles} mi</h3>
     <p>${item.detail}</p>
-    <p>${item.pace} • ${item.hr}</p>
+    <p><strong>${target}</strong></p>
+    <p>${secondary}</p>
   `;
   const actions = document.createElement("div");
   actions.className = "workout-actions";
@@ -280,9 +417,26 @@ function adaptFutureWorkouts() {
   });
 }
 
+function updateAfterLatestWorkout() {
+  if (!state.activities.length) {
+    state.importReport = "Import your recent workouts first, then I can reassess after the latest one.";
+    render();
+    return;
+  }
+  adaptFutureWorkouts();
+  const latest = recentActivities().at(-1);
+  const assessment = assessmentCards()[0];
+  state.importReport = latest
+    ? `Latest workout reviewed: ${latest.miles.toFixed(2)} miles on ${latest.date}. ${assessment.title}. Future planned workouts were adjusted.`
+    : "No recent workout found in the six-month window.";
+  save();
+  render();
+}
+
 function render() {
   renderActivities();
   renderPlan();
+  renderAssessment();
   updateSummary();
 }
 
@@ -591,6 +745,11 @@ els.generatePlan.addEventListener("click", buildPlan);
 els.recalculate.addEventListener("click", () => {
   adaptFutureWorkouts();
   save();
+  render();
+});
+els.updateAfterWorkout.addEventListener("click", updateAfterLatestWorkout);
+els.stravaButton.addEventListener("click", () => {
+  state.importReport = "Strava sync needs a small backend for OAuth. For now, use Garmin imports or exports; the assessment and plan update logic is already active.";
   render();
 });
 els.fileInput.addEventListener("change", (event) => {

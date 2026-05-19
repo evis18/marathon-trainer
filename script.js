@@ -314,7 +314,7 @@ async function importFiles(files) {
   }
   state.activities.push(...imported);
   state.ignoredFiles += ignored;
-  state.importReport = `Last import: ${files.length} selected, ${imported.length} recent loaded, ${ignored} older ignored, ${failed} unreadable, ${files.length - supported.length} unsupported.`;
+  state.importReport = `Last import: ${files.length} selected, ${imported.length} recent loaded, ${ignored} older ignored, ${failed} non-workout files skipped, ${files.length - supported.length} unsupported.`;
   adaptFutureWorkouts();
   save();
   render();
@@ -371,6 +371,7 @@ function parseFitActivity(name, buffer) {
     offset += 1;
     const compressed = Boolean(header & 0x80);
     const isDefinition = !compressed && Boolean(header & 0x40);
+    const hasDeveloperFields = !compressed && Boolean(header & 0x20);
     const localType = compressed ? (header >> 5) & 0x03 : header & 0x0f;
 
     if (isDefinition) {
@@ -388,7 +389,20 @@ function parseFitActivity(name, buffer) {
         fields.push({ fieldNum, size, baseType });
         offset += 3;
       }
-      definitions.set(localType, { reserved, littleEndian, globalMessage, fields });
+      const developerFields = [];
+      if (hasDeveloperFields) {
+        const developerFieldCount = view.getUint8(offset);
+        offset += 1;
+        for (let index = 0; index < developerFieldCount; index += 1) {
+          developerFields.push({
+            fieldNum: view.getUint8(offset),
+            size: view.getUint8(offset + 1),
+            developerDataIndex: view.getUint8(offset + 2),
+          });
+          offset += 3;
+        }
+      }
+      definitions.set(localType, { reserved, littleEndian, globalMessage, fields, developerFields });
       continue;
     }
 
@@ -397,6 +411,9 @@ function parseFitActivity(name, buffer) {
     const values = {};
     for (const field of definition.fields) {
       values[field.fieldNum] = readFitValue(view, offset, field, definition.littleEndian);
+      offset += field.size;
+    }
+    for (const field of definition.developerFields) {
       offset += field.size;
     }
 

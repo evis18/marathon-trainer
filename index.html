@@ -104,11 +104,15 @@
           <div class="panel-heading">
             <div>
               <h2>Garmin Files</h2>
-              <p>Upload TCX, GPX, or activity CSV exports. FIT can be added later with a parser.</p>
+              <p>Upload Garmin FIT, TCX, GPX, XML, or CSV files. Older than six months is ignored.</p>
             </div>
             <label class="file-button">
-              Import
-              <input id="file-input" type="file" multiple accept=".tcx,.gpx,.xml,.csv">
+              Import files
+              <input id="file-input" type="file" multiple accept=".fit,.tcx,.gpx,.xml,.csv">
+            </label>
+            <label class="file-button">
+              Import folder
+              <input id="folder-input" type="file" multiple webkitdirectory>
             </label>
           </div>
           <div id="activity-list" class="activity-list"></div>

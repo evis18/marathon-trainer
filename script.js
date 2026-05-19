@@ -9,6 +9,7 @@ const state = {
   plan: [],
   activities: [],
   settings: {},
+  ignoredFiles: 0,
 };
 
 const els = {
@@ -25,6 +26,7 @@ const els = {
   generatePlan: document.querySelector("#generate-plan"),
   recalculate: document.querySelector("#recalculate"),
   fileInput: document.querySelector("#file-input"),
+  folderInput: document.querySelector("#folder-input"),
   activityList: document.querySelector("#activity-list"),
   planGrid: document.querySelector("#plan-grid"),
   planNote: document.querySelector("#plan-note"),
@@ -176,11 +178,19 @@ function updateSummary(fitness = fitnessFromInputs(collectSettings())) {
 
 function renderActivities() {
   if (!state.activities.length) {
-    els.activityList.innerHTML = `<div class="activity-card"><strong>No files yet</strong><span>Import Garmin TCX, GPX, XML, or CSV files.</span></div>`;
+    els.activityList.innerHTML = `<div class="activity-card"><strong>No files yet</strong><span>Import Garmin FIT, TCX, GPX, XML, or CSV files.</span><span>Only the last six months will be used.</span></div>`;
     return;
   }
 
-  els.activityList.replaceChildren(...state.activities.slice(-8).reverse().map((activity) => {
+  const summary = document.createElement("article");
+  summary.className = "activity-card";
+  summary.innerHTML = `
+    <strong>${state.activities.length} recent workouts loaded</strong>
+    <span>${state.ignoredFiles} older files ignored</span>
+    <span>${Math.round(state.activities.reduce((sum, activity) => sum + activity.miles, 0))} total miles analyzed</span>
+  `;
+
+  els.activityList.replaceChildren(summary, ...state.activities.slice(-8).reverse().map((activity) => {
     const card = document.createElement("article");
     card.className = "activity-card";
     card.innerHTML = `
@@ -268,21 +278,39 @@ function render() {
 
 async function importFiles(files) {
   const imported = [];
+  let ignored = 0;
   for (const file of files) {
-    const text = await file.text();
-    const activity = parseActivity(file.name, text);
-    if (activity) imported.push(activity);
+    const activity = await parseActivity(file);
+    if (!activity) continue;
+    if (isWithinLastSixMonths(activity.date)) {
+      imported.push(activity);
+    } else {
+      ignored += 1;
+    }
   }
   state.activities.push(...imported);
+  state.ignoredFiles += ignored;
   adaptFutureWorkouts();
   save();
   render();
 }
 
-function parseActivity(name, text) {
-  const lower = name.toLowerCase();
-  if (lower.endsWith(".csv")) return parseCsvActivity(name, text);
-  return parseXmlActivity(name, text);
+async function parseActivity(file) {
+  const lower = file.name.toLowerCase();
+  if (lower.endsWith(".fit")) return parseFitActivity(file.name, await file.arrayBuffer());
+  const text = await file.text();
+  if (lower.endsWith(".csv")) return parseCsvActivity(file.name, text);
+  return parseXmlActivity(file.name, text);
+}
+
+function isWithinLastSixMonths(dateText) {
+  if (!dateText) return true;
+  const date = new Date(dateText);
+  if (Number.isNaN(date.getTime())) return true;
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 6);
+  cutoff.setHours(0, 0, 0, 0);
+  return date >= cutoff;
 }
 
 function parseXmlActivity(name, text) {
@@ -300,6 +328,147 @@ function parseXmlActivity(name, text) {
   const miles = lastDistance ? lastDistance / 1609.344 : estimateMilesFromGpx(doc);
   if (!miles || !seconds) return null;
   return { name, date: timeNodes[0]?.textContent?.slice(0, 10) || "", miles, seconds, avgHr: avgHr || null };
+}
+
+function parseFitActivity(name, buffer) {
+  const view = new DataView(buffer);
+  if (view.byteLength < 14) return null;
+  const headerSize = view.getUint8(0);
+  const dataSize = view.getUint32(4, true);
+  const dataEnd = Math.min(view.byteLength, headerSize + dataSize);
+  const definitions = new Map();
+  const records = [];
+  const sessions = [];
+  let offset = headerSize;
+
+  while (offset < dataEnd) {
+    const header = view.getUint8(offset);
+    offset += 1;
+    const compressed = Boolean(header & 0x80);
+    const isDefinition = !compressed && Boolean(header & 0x40);
+    const localType = compressed ? (header >> 5) & 0x03 : header & 0x0f;
+
+    if (isDefinition) {
+      const reserved = view.getUint8(offset);
+      const architecture = view.getUint8(offset + 1);
+      const littleEndian = architecture === 0;
+      const globalMessage = littleEndian ? view.getUint16(offset + 2, true) : view.getUint16(offset + 2, false);
+      const fieldCount = view.getUint8(offset + 4);
+      offset += 5;
+      const fields = [];
+      for (let index = 0; index < fieldCount; index += 1) {
+        const fieldNum = view.getUint8(offset);
+        const size = view.getUint8(offset + 1);
+        const baseType = view.getUint8(offset + 2);
+        fields.push({ fieldNum, size, baseType });
+        offset += 3;
+      }
+      definitions.set(localType, { reserved, littleEndian, globalMessage, fields });
+      continue;
+    }
+
+    const definition = definitions.get(localType);
+    if (!definition) break;
+    const values = {};
+    for (const field of definition.fields) {
+      values[field.fieldNum] = readFitValue(view, offset, field, definition.littleEndian);
+      offset += field.size;
+    }
+
+    if (definition.globalMessage === 20) records.push(values);
+    if (definition.globalMessage === 18) sessions.push(values);
+  }
+
+  const session = sessions.at(-1);
+  const firstRecord = records[0];
+  const lastRecord = records.at(-1);
+  const startTimestamp = session?.[2] ?? firstRecord?.[253];
+  const totalDistance = session?.[9] ? session[9] / 100 : (lastRecord?.[5] ? lastRecord[5] / 100 : 0);
+  const seconds = session?.[8] ? session[8] / 1000 : Math.max(0, (lastRecord?.[253] ?? 0) - (firstRecord?.[253] ?? 0));
+  const heartRates = records.map((record) => record[3]).filter((value) => value && value < 255);
+  const avgHr = session?.[16] || Math.round(heartRates.reduce((sum, value) => sum + value, 0) / Math.max(1, heartRates.length)) || null;
+  const sport = session?.[5];
+
+  if (!totalDistance || !seconds) return null;
+
+  return {
+    name,
+    date: fitDate(startTimestamp),
+    miles: totalDistance / 1609.344,
+    seconds,
+    avgHr,
+    sport,
+  };
+}
+
+function readFitValue(view, offset, field, littleEndian) {
+  const baseType = field.baseType & 0x1f;
+  if (field.size > fitBaseTypeSize(baseType)) {
+    const values = [];
+    for (let index = 0; index < field.size; index += fitBaseTypeSize(baseType)) {
+      values.push(readFitScalar(view, offset + index, baseType, littleEndian));
+    }
+    return values.find((value) => value !== null) ?? null;
+  }
+  return readFitScalar(view, offset, baseType, littleEndian);
+}
+
+function fitBaseTypeSize(baseType) {
+  return {
+    0x00: 1,
+    0x01: 1,
+    0x02: 1,
+    0x83: 2,
+    0x84: 2,
+    0x85: 4,
+    0x86: 4,
+    0x07: 1,
+    0x88: 4,
+    0x89: 8,
+    0x0a: 1,
+    0x8b: 2,
+    0x8c: 2,
+    0x8d: 4,
+    0x8e: 4,
+  }[baseType] ?? 1;
+}
+
+function readFitScalar(view, offset, baseType, littleEndian) {
+  if (offset >= view.byteLength) return null;
+  switch (baseType) {
+    case 0x00:
+    case 0x01:
+    case 0x0a:
+      return view.getUint8(offset);
+    case 0x02:
+      return view.getInt8(offset);
+    case 0x83:
+    case 0x8b:
+      return view.getUint16(offset, littleEndian);
+    case 0x84:
+    case 0x8c:
+      return view.getInt16(offset, littleEndian);
+    case 0x85:
+    case 0x8d:
+      return view.getUint32(offset, littleEndian);
+    case 0x86:
+    case 0x8e:
+      return view.getInt32(offset, littleEndian);
+    case 0x88:
+      return view.getFloat32(offset, littleEndian);
+    case 0x89:
+      return view.getFloat64(offset, littleEndian);
+    case 0x07:
+      return String.fromCharCode(view.getUint8(offset));
+    default:
+      return view.getUint8(offset);
+  }
+}
+
+function fitDate(timestamp) {
+  if (!timestamp) return "";
+  const garminEpoch = Date.UTC(1989, 11, 31);
+  return new Date(garminEpoch + timestamp * 1000).toISOString().slice(0, 10);
 }
 
 function estimateMilesFromGpx(doc) {
@@ -367,6 +536,10 @@ els.recalculate.addEventListener("click", () => {
   render();
 });
 els.fileInput.addEventListener("change", (event) => {
+  importFiles([...event.target.files]);
+  event.target.value = "";
+});
+els.folderInput.addEventListener("change", (event) => {
   importFiles([...event.target.files]);
   event.target.value = "";
 });

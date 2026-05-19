@@ -402,7 +402,7 @@ function parseFitActivity(name, buffer) {
 }
 
 function readFitValue(view, offset, field, littleEndian) {
-  const baseType = field.baseType & 0x1f;
+  const baseType = field.baseType;
   if (field.size > fitBaseTypeSize(baseType)) {
     const values = [];
     for (let index = 0; index < field.size; index += fitBaseTypeSize(baseType)) {
@@ -414,6 +414,7 @@ function readFitValue(view, offset, field, littleEndian) {
 }
 
 function fitBaseTypeSize(baseType) {
+  const normalized = baseType & 0x1f;
   return {
     0x00: 1,
     0x01: 1,
@@ -430,34 +431,49 @@ function fitBaseTypeSize(baseType) {
     0x8c: 2,
     0x8d: 4,
     0x8e: 4,
-  }[baseType] ?? 1;
+  }[baseType] ?? {
+    0x03: 2,
+    0x04: 2,
+    0x05: 4,
+    0x06: 4,
+    0x08: 4,
+    0x09: 8,
+    0x0b: 2,
+    0x0c: 2,
+    0x0d: 4,
+    0x0e: 4,
+  }[normalized] ?? 1;
 }
 
 function readFitScalar(view, offset, baseType, littleEndian) {
   if (offset >= view.byteLength) return null;
-  switch (baseType) {
+  const normalized = baseType & 0x1f;
+  switch (normalized) {
     case 0x00:
-    case 0x01:
-    case 0x0a:
-      return view.getUint8(offset);
     case 0x02:
+    case 0x0a:
+    case 0x0d:
+      return view.getUint8(offset);
+    case 0x01:
       return view.getInt8(offset);
-    case 0x83:
-    case 0x8b:
+    case 0x04:
+    case 0x0b:
       return view.getUint16(offset, littleEndian);
-    case 0x84:
-    case 0x8c:
+    case 0x03:
       return view.getInt16(offset, littleEndian);
-    case 0x85:
-    case 0x8d:
+    case 0x06:
+    case 0x0c:
       return view.getUint32(offset, littleEndian);
-    case 0x86:
-    case 0x8e:
+    case 0x05:
       return view.getInt32(offset, littleEndian);
-    case 0x88:
+    case 0x08:
       return view.getFloat32(offset, littleEndian);
-    case 0x89:
+    case 0x09:
       return view.getFloat64(offset, littleEndian);
+    case 0x0e:
+      return Number(view.getBigInt64(offset, littleEndian));
+    case 0x0f:
+      return Number(view.getBigUint64(offset, littleEndian));
     case 0x07:
       return String.fromCharCode(view.getUint8(offset));
     default:

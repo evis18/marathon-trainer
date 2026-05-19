@@ -10,6 +10,7 @@ const state = {
   activities: [],
   settings: {},
   ignoredFiles: 0,
+  importReport: "",
 };
 
 const els = {
@@ -180,7 +181,14 @@ function updateSummary(fitness = fitnessFromInputs(collectSettings())) {
 
 function renderActivities() {
   if (!state.activities.length) {
-    els.activityList.innerHTML = `<div class="activity-card"><strong>No files yet</strong><span>Import Garmin FIT, TCX, GPX, XML, or CSV files.</span><span>Only the last six months will be used.</span></div>`;
+    els.activityList.innerHTML = `
+      <div class="activity-card">
+        <strong>No recent files loaded yet</strong>
+        <span>Import Garmin FIT, TCX, GPX, XML, or CSV files.</span>
+        <span>Only the last six months will be used.</span>
+        ${state.importReport ? `<span>${state.importReport}</span>` : ""}
+      </div>
+    `;
     return;
   }
 
@@ -190,6 +198,7 @@ function renderActivities() {
     <strong>${state.activities.length} recent workouts loaded</strong>
     <span>${state.ignoredFiles} older files ignored</span>
     <span>${Math.round(state.activities.reduce((sum, activity) => sum + activity.miles, 0))} total miles analyzed</span>
+    ${state.importReport ? `<span>${state.importReport}</span>` : ""}
   `;
 
   els.activityList.replaceChildren(summary, ...state.activities.slice(-8).reverse().map((activity) => {
@@ -280,10 +289,24 @@ function render() {
 
 async function importFiles(files) {
   const imported = [];
+  const supported = files.filter((file) => /\.(fit|tcx|gpx|xml|csv)$/i.test(file.name));
   let ignored = 0;
-  for (const file of files) {
-    const activity = await parseActivity(file);
-    if (!activity) continue;
+  let failed = 0;
+
+  for (const file of supported) {
+    let activity = null;
+    try {
+      activity = await parseActivity(file);
+    } catch {
+      failed += 1;
+      continue;
+    }
+
+    if (!activity) {
+      failed += 1;
+      continue;
+    }
+
     if (isWithinLastSixMonths(activity.date)) {
       imported.push(activity);
     } else {
@@ -292,6 +315,7 @@ async function importFiles(files) {
   }
   state.activities.push(...imported);
   state.ignoredFiles += ignored;
+  state.importReport = `Last import: ${files.length} selected, ${imported.length} recent loaded, ${ignored} older ignored, ${failed} unreadable, ${files.length - supported.length} unsupported.`;
   adaptFutureWorkouts();
   save();
   render();

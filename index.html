@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Marathon Trainer</title>
-    <link rel="stylesheet" href="styles.css?v=7">
+    <link rel="stylesheet" href="styles.css?v=8">
   </head>
   <body>
     <main class="app">
@@ -88,12 +88,19 @@
 
           <div class="field-row">
             <label>
+              Age
+              <input id="age" type="number" min="12" max="100" value="45">
+            </label>
+            <label>
               Resting HR
               <input id="resting-hr" type="number" min="35" max="100" value="55">
             </label>
+          </div>
+
+          <div class="field-row single-field">
             <label>
-              Max HR
-              <input id="max-hr" type="number" min="120" max="220" value="185">
+              Known max HR, if you know it
+              <input id="max-hr" type="number" min="120" max="220" placeholder="Optional">
             </label>
           </div>
 
@@ -136,7 +143,7 @@
           <div class="strava-box">
             <strong>Strava sync</strong>
             <span>To pull the latest workout from Strava, this app needs a small backend and Strava OAuth credentials. Scraping Strava directly from this page would be brittle and unsafe.</span>
-            <button id="strava-button" type="button">Configure Strava later</button>
+            <button id="strava-button" type="button">Show Strava setup path</button>
           </div>
         </section>
 
@@ -152,6 +159,6 @@
         </section>
       </section>
     </main>
-    <script src="script.js?v=7"></script>
+    <script src="script.js?v=8"></script>
   </body>
 </html>

@@ -135,6 +135,10 @@ h2 {
   gap: 10px;
 }
 
+.field-row.single-field {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 label {
   display: grid;
   gap: 5px;

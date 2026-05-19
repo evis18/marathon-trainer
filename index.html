@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Marathon Trainer</title>
+    <link rel="stylesheet" href="styles.css?v=1">
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <div>
+          <h1>Marathon Trainer</h1>
+          <p>Goal-based run planning that adapts as your workouts come in.</p>
+        </div>
+        <div class="summary">
+          <span id="readiness">Readiness --</span>
+          <span id="projection">Projection --</span>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <aside class="panel setup-panel">
+          <h2>Goal</h2>
+          <div class="field-row">
+            <label>
+              Race
+              <select id="race-distance">
+                <option value="10k">10K</option>
+                <option value="half">Half marathon</option>
+                <option value="marathon" selected>Marathon</option>
+              </select>
+            </label>
+            <label>
+              Goal time
+              <input id="goal-time" type="text" inputmode="numeric" value="4:00:00" aria-label="Goal time">
+            </label>
+          </div>
+
+          <div class="field-row">
+            <label>
+              Plan length
+              <select id="plan-length">
+                <option value="10">10 weeks</option>
+                <option value="12">12 weeks</option>
+                <option value="16" selected>16 weeks</option>
+                <option value="52">52 weeks</option>
+              </select>
+            </label>
+            <label>
+              Runs per week
+              <select id="runs-per-week">
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5" selected>5</option>
+                <option value="6">6</option>
+              </select>
+            </label>
+          </div>
+
+          <h2>Current Fitness</h2>
+          <div class="field-row">
+            <label>
+              Weekly miles
+              <input id="weekly-mileage" type="number" min="0" max="120" value="20">
+            </label>
+            <label>
+              Long run miles
+              <input id="long-run" type="number" min="0" max="40" value="8">
+            </label>
+          </div>
+
+          <div class="field-row">
+            <label>
+              Recent race/test
+              <select id="recent-distance">
+                <option value="5k">5K</option>
+                <option value="10k" selected>10K</option>
+                <option value="half">Half marathon</option>
+                <option value="none">None</option>
+              </select>
+            </label>
+            <label>
+              Recent time
+              <input id="recent-time" type="text" inputmode="numeric" value="55:00">
+            </label>
+          </div>
+
+          <div class="field-row">
+            <label>
+              Resting HR
+              <input id="resting-hr" type="number" min="35" max="100" value="55">
+            </label>
+            <label>
+              Max HR
+              <input id="max-hr" type="number" min="120" max="220" value="185">
+            </label>
+          </div>
+
+          <button id="generate-plan" class="primary" type="button">Generate plan</button>
+        </aside>
+
+        <section class="panel import-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Garmin Files</h2>
+              <p>Upload TCX, GPX, or activity CSV exports. FIT can be added later with a parser.</p>
+            </div>
+            <label class="file-button">
+              Import
+              <input id="file-input" type="file" multiple accept=".tcx,.gpx,.xml,.csv">
+            </label>
+          </div>
+          <div id="activity-list" class="activity-list"></div>
+        </section>
+
+        <section class="panel plan-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Adaptive Plan</h2>
+              <p id="plan-note">Generate a plan, then import runs or mark workouts as completed/skipped.</p>
+            </div>
+            <button id="recalculate" type="button">Recalculate</button>
+          </div>
+          <div id="plan-grid" class="plan-grid"></div>
+        </section>
+      </section>
+    </main>
+    <script src="script.js?v=1"></script>
+  </body>
+</html>

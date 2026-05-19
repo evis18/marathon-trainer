@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Marathon Trainer</title>
-    <link rel="stylesheet" href="styles.css?v=2">
+    <link rel="stylesheet" href="styles.css?v=3">
   </head>
   <body>
     <main class="app">
@@ -106,14 +106,10 @@
               <h2>Garmin Files</h2>
               <p>Upload Garmin FIT, TCX, GPX, XML, or CSV files. Older than six months is ignored.</p>
             </div>
-            <label class="file-button">
-              Import files
-              <input id="file-input" type="file" multiple accept=".fit,.tcx,.gpx,.xml,.csv">
-            </label>
-            <label class="file-button">
-              Import folder
-              <input id="folder-input" type="file" multiple webkitdirectory>
-            </label>
+            <button id="import-files" class="file-button" type="button">Import files</button>
+            <button id="import-folder" class="file-button" type="button">Import folder</button>
+            <input id="file-input" class="file-input" type="file" multiple accept=".fit,.tcx,.gpx,.xml,.csv">
+            <input id="folder-input" class="file-input" type="file" multiple webkitdirectory>
           </div>
           <div id="activity-list" class="activity-list"></div>
         </section>
@@ -130,6 +126,6 @@
         </section>
       </section>
     </main>
-    <script src="script.js?v=2"></script>
+    <script src="script.js?v=3"></script>
   </body>
 </html>

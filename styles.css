@@ -182,8 +182,12 @@ button.primary {
   font-weight: 900;
 }
 
-.file-button input {
-  display: none;
+.file-input {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .activity-list {

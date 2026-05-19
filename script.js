@@ -25,6 +25,8 @@ const els = {
   maxHr: document.querySelector("#max-hr"),
   generatePlan: document.querySelector("#generate-plan"),
   recalculate: document.querySelector("#recalculate"),
+  importFiles: document.querySelector("#import-files"),
+  importFolder: document.querySelector("#import-folder"),
   fileInput: document.querySelector("#file-input"),
   folderInput: document.querySelector("#folder-input"),
   activityList: document.querySelector("#activity-list"),
@@ -550,6 +552,12 @@ els.recalculate.addEventListener("click", () => {
   adaptFutureWorkouts();
   save();
   render();
+});
+els.importFiles.addEventListener("click", () => {
+  els.fileInput.click();
+});
+els.importFolder.addEventListener("click", () => {
+  els.folderInput.click();
 });
 els.fileInput.addEventListener("change", (event) => {
   importFiles([...event.target.files]);

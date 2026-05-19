@@ -106,10 +106,20 @@
               <h2>Garmin Files</h2>
               <p>Upload Garmin FIT, TCX, GPX, XML, or CSV files. Older than six months is ignored.</p>
             </div>
-            <button id="import-files" class="file-button" type="button">Import files</button>
-            <button id="import-folder" class="file-button" type="button">Import folder</button>
-            <input id="file-input" class="file-input" type="file" multiple accept=".fit,.tcx,.gpx,.xml,.csv">
-            <input id="folder-input" class="file-input" type="file" multiple webkitdirectory>
+          </div>
+          <div id="drop-zone" class="drop-zone">
+            <strong>Drop Garmin files here</strong>
+            <span>or use the file pickers below</span>
+          </div>
+          <div class="import-controls">
+            <label class="native-import">
+              Import files
+              <input id="file-input" type="file" multiple accept=".fit,.tcx,.gpx,.xml,.csv">
+            </label>
+            <label class="native-import">
+              Import folder
+              <input id="folder-input" type="file" multiple webkitdirectory>
+            </label>
           </div>
           <div id="activity-list" class="activity-list"></div>
         </section>

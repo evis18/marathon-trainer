@@ -154,8 +154,7 @@ select {
   background: #fbfdfb;
 }
 
-button,
-.file-button {
+button {
   border: 0;
   padding: 0 14px;
   color: #fff;
@@ -174,20 +173,46 @@ button.primary {
   border: 1px solid #c9dfd0;
 }
 
-.file-button {
-  min-height: 40px;
-  display: inline-grid;
+.drop-zone {
+  display: grid;
   place-items: center;
+  gap: 5px;
+  min-height: 86px;
+  margin-bottom: 10px;
+  border: 2px dashed #b9d3c0;
   border-radius: 8px;
-  font-weight: 900;
+  color: var(--green);
+  background: var(--soft);
+  text-align: center;
 }
 
-.file-input {
-  position: fixed;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
+.drop-zone.dragging {
+  border-color: var(--blue);
+  background: #eef3ff;
+}
+
+.drop-zone span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.import-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.native-import {
+  padding: 10px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: #fbfdfb;
+}
+
+.native-import input {
+  min-height: 44px;
+  padding: 9px;
 }
 
 .activity-list {

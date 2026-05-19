@@ -26,8 +26,7 @@ const els = {
   maxHr: document.querySelector("#max-hr"),
   generatePlan: document.querySelector("#generate-plan"),
   recalculate: document.querySelector("#recalculate"),
-  importFiles: document.querySelector("#import-files"),
-  importFolder: document.querySelector("#import-folder"),
+  dropZone: document.querySelector("#drop-zone"),
   fileInput: document.querySelector("#file-input"),
   folderInput: document.querySelector("#folder-input"),
   activityList: document.querySelector("#activity-list"),
@@ -577,12 +576,6 @@ els.recalculate.addEventListener("click", () => {
   save();
   render();
 });
-els.importFiles.addEventListener("click", () => {
-  els.fileInput.click();
-});
-els.importFolder.addEventListener("click", () => {
-  els.folderInput.click();
-});
 els.fileInput.addEventListener("change", (event) => {
   importFiles([...event.target.files]);
   event.target.value = "";
@@ -590,6 +583,18 @@ els.fileInput.addEventListener("change", (event) => {
 els.folderInput.addEventListener("change", (event) => {
   importFiles([...event.target.files]);
   event.target.value = "";
+});
+els.dropZone.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  els.dropZone.classList.add("dragging");
+});
+els.dropZone.addEventListener("dragleave", () => {
+  els.dropZone.classList.remove("dragging");
+});
+els.dropZone.addEventListener("drop", (event) => {
+  event.preventDefault();
+  els.dropZone.classList.remove("dragging");
+  importFiles([...event.dataTransfer.files]);
 });
 
 load();

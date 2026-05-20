@@ -1171,16 +1171,22 @@ function mergeActivities(activities) {
 }
 
 async function loadLocalWorkoutCache() {
-  if (state.localCacheLoaded) return;
   try {
     const response = await fetch(`local-workouts.json?cache=${Date.now()}`);
     if (!response.ok) return;
     const payload = await response.json();
+    const cacheCount = payload.activities?.length || 0;
+    const cachedKeys = new Set((payload.activities || []).map(activityKey));
+    const alreadyHasCache = cacheCount > 0 && state.activities.some((activity) => cachedKeys.has(activityKey(activity)));
+    if (state.localCacheLoaded && alreadyHasCache) {
+      state.importReport ||= `Local workout cache available: ${cacheCount} recent workouts.`;
+      return;
+    }
     const loaded = mergeActivities(payload.activities || []);
     state.localCacheLoaded = true;
     state.importReport = loaded
       ? `Local workout cache loaded: ${loaded} recent workouts added.`
-      : `Local workout cache found. No new workouts needed to be added.`;
+      : `Local workout cache found: ${cacheCount} recent workouts already available.`;
     if (state.plan.length) adaptFutureWorkouts();
     save();
   } catch {

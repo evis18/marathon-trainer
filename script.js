@@ -15,6 +15,7 @@ const state = {
   localCacheLoaded: false,
   profileLocked: false,
   lastPostmortem: null,
+  coachStatus: "AI coach not connected yet",
 };
 
 const els = {
@@ -359,7 +360,7 @@ function assessmentCards() {
   if (state.lastPostmortem) {
     cards.push({
       tone: state.lastPostmortem.tone,
-      title: "Latest workout postmortem",
+      title: state.lastPostmortem.source === "ai" ? "AI coach postmortem" : "Latest workout postmortem",
       text: state.lastPostmortem.text,
     });
   }
@@ -506,7 +507,105 @@ function postmortemFor(activity, workoutItem, adjustment) {
   const tone = distanceRatio < 0.75 ? "risk" : adjustment.volume < 0.98 || adjustment.pace > 1.01 ? "watch" : "good";
   return {
     tone,
+    source: "rules",
     text: `${workoutItem.type}: ${activity.miles.toFixed(2)} miles in ${formatTime(activity.seconds)} (${formatPace(pace)}). ${hrText} ${context.summary} ${completionText} ${adjustment.note}`,
+  };
+}
+
+function coachPayload(activity, workoutItem, ruleAdjustment) {
+  const settings = state.settings?.race ? state.settings : collectSettings();
+  const fitness = fitnessFromInputs(settings);
+  const hrModel = heartRateModel(settings);
+  const recent = recentActivities().slice(-14).map((run) => ({
+    date: run.date,
+    miles: Number(run.miles.toFixed(2)),
+    duration: formatTime(run.seconds),
+    pace: formatPace(run.seconds / Math.max(0.1, run.miles)),
+    avgHr: run.avgHr || null,
+    maxHr: run.maxHr || null,
+    ascentFeet: run.ascentFeet ? Math.round(run.ascentFeet) : null,
+    avgTempF: run.avgTempF ? Math.round(run.avgTempF) : null,
+  }));
+  const futureWorkouts = state.plan.flatMap((week) => week.workouts)
+    .filter((item) => item.status === "planned")
+    .slice(0, 12)
+    .map((item) => ({
+      id: item.id,
+      date: item.date,
+      type: item.type,
+      miles: item.miles,
+      detail: item.detail,
+      targetPace: item.pace,
+      targetHr: item.hr,
+    }));
+
+  return {
+    runner: {
+      name: settings.runnerName,
+      age: settings.age,
+      raceGoal: goalName(settings.race),
+      goalTime: formatTime(settings.goalSeconds),
+      goalPace: formatPace(fitness.goalPace),
+      runsPerWeek: settings.runsPerWeek,
+      planWeeks: settings.weeks,
+    },
+    currentEstimate: {
+      readiness: fitness.readiness,
+      projectedRaceTime: formatTime(fitness.recentPrediction),
+      hrZones: hrModel.zones,
+    },
+    plannedWorkout: {
+      id: workoutItem.id,
+      date: workoutItem.date,
+      type: workoutItem.type,
+      miles: workoutItem.miles,
+      detail: workoutItem.detail,
+      targetPace: workoutItem.pace,
+      targetHr: workoutItem.hr,
+    },
+    completedWorkout: {
+      date: activity.date,
+      miles: Number(activity.miles.toFixed(2)),
+      duration: formatTime(activity.seconds),
+      pace: formatPace(activity.seconds / Math.max(0.1, activity.miles)),
+      avgHr: activity.avgHr || null,
+      maxHr: activity.maxHr || null,
+      ascentFeet: activity.ascentFeet ? Math.round(activity.ascentFeet) : null,
+      avgTempF: activity.avgTempF ? Math.round(activity.avgTempF) : null,
+    },
+    recentWorkouts: recent,
+    futureWorkouts,
+    ruleFallback: ruleAdjustment,
+  };
+}
+
+async function askAiCoach(activity, workoutItem, ruleAdjustment) {
+  const response = await fetch("http://localhost:8789/api/coach", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(coachPayload(activity, workoutItem, ruleAdjustment)),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result.error || "AI coach backend unavailable");
+  }
+  return result;
+}
+
+function normalizeCoachResult(result, fallbackAdjustment) {
+  const volume = Number(result.adjustment?.volumeMultiplier ?? fallbackAdjustment.volume ?? 1);
+  const pace = Number(result.adjustment?.paceMultiplier ?? fallbackAdjustment.pace ?? 1);
+  return {
+    adjustment: {
+      volume: Math.max(0.85, Math.min(1.08, volume)),
+      pace: Math.max(0.94, Math.min(1.08, pace)),
+      note: result.adjustment?.summary || fallbackAdjustment.note,
+    },
+    postmortem: {
+      tone: ["good", "watch", "risk"].includes(result.tone) ? result.tone : "watch",
+      source: "ai",
+      text: result.postmortem || fallbackAdjustment.note,
+    },
   };
 }
 
@@ -721,11 +820,22 @@ async function completeWorkoutWithFile(item, file) {
   item.completedActivityKey = activityKey(activity);
   const settings = state.settings?.race ? state.settings : collectSettings();
   const fitness = fitnessFromInputs(settings);
-  const adjustment = performanceAdjustment(settings, fitness, activity, item);
+  let adjustment = performanceAdjustment(settings, fitness, activity, item);
   state.lastPostmortem = postmortemFor(activity, item, adjustment);
+  state.coachStatus = "Using local fallback coach rules.";
+  try {
+    state.importReport = "Asking AI coach for workout analysis...";
+    render();
+    const ai = normalizeCoachResult(await askAiCoach(activity, item, adjustment), adjustment);
+    adjustment = ai.adjustment;
+    state.lastPostmortem = ai.postmortem;
+    state.coachStatus = "AI coach used ChatGPT for the latest postmortem.";
+  } catch (error) {
+    state.coachStatus = `AI coach unavailable: ${error.message}. Used local fallback analysis.`;
+  }
   state.performanceNote = adjustment.note;
   adaptFutureWorkouts(adjustment);
-  state.importReport = "Workout completed from Garmin file. Postmortem is shown in Plan Strategy.";
+  state.importReport = `Workout completed from Garmin file. ${state.coachStatus}`;
   save();
   render();
 }

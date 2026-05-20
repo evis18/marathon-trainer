@@ -14,7 +14,8 @@ Version one supports:
 - Adaptive plan recalculation based on workout performance: pace, mileage, and heart rate
 - Calendar-style plan display saved in the browser so you can return without re-uploading history
 - Workout completion requires attaching the Garmin file for that workout
-- Post-workout analysis considers pace, heart rate, distance, heat, and hills before adjusting future workouts
+- Optional AI coach backend uses ChatGPT for dynamic post-workout analysis and plan adjustment
+- Fallback post-workout analysis still considers pace, heart rate, distance, heat, and hills before adjusting future workouts
 - Quality days include specific interval or tempo prescriptions
 - Garmin file imports for FIT, TCX, GPX/XML, and CSV activity exports
 - Automatic filtering to the last six months of workouts
@@ -31,3 +32,17 @@ The `strava-backend/` folder contains a starter backend plan for the next step:
 2. Put `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`, and `STRAVA_REDIRECT_URI` in the backend environment.
 3. Run/deploy the backend.
 4. Point the webpage at the backend endpoint to fetch the latest activities.
+
+## AI coach
+
+The browser app cannot safely store an OpenAI API key, so ChatGPT coaching runs through the local `coach-backend/` service.
+
+Start it with:
+
+```sh
+cd coach-backend
+export OPENAI_API_KEY="your_api_key_here"
+npm start
+```
+
+Then complete a planned workout by attaching its Garmin file. The site will ask the AI coach for a postmortem and future-plan adjustment. If the backend is not running, the site uses the local fallback analysis and tells you that it did.

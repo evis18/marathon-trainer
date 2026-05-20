@@ -88,6 +88,41 @@ function addDaysIso(dateText, days) {
   return date.toISOString().slice(0, 10);
 }
 
+function firstSundayOnOrAfter(dateText) {
+  const date = new Date(`${dateText || todayIso()}T12:00:00`);
+  const daysUntilSunday = (7 - date.getDay()) % 7;
+  date.setDate(date.getDate() + daysUntilSunday);
+  return date.toISOString().slice(0, 10);
+}
+
+function trainingDatesForWeek(startDate, week, runsPerWeek) {
+  const sunday = firstSundayOnOrAfter(addDaysIso(startDate, (week - 1) * 7));
+  const offsetsByRuns = {
+    3: [-6, -3, 0],
+    4: [-6, -4, -2, 0],
+    5: [-6, -4, -3, -2, 0],
+    6: [-6, -5, -4, -3, -2, 0],
+  };
+  const offsets = offsetsByRuns[Math.max(3, Math.min(6, runsPerWeek))] || offsetsByRuns[5];
+  const dates = offsets.map((offset) => addDaysIso(sunday, offset));
+  if (week === 1) {
+    const start = new Date(`${startDate || todayIso()}T12:00:00`);
+    const sundayDate = new Date(`${sunday}T12:00:00`);
+    const used = new Set();
+    return dates.map((dateText, index) => {
+      let date = new Date(`${dateText}T12:00:00`);
+      if (date < start) date = new Date(start);
+      while (used.has(date.toISOString().slice(0, 10)) && date < sundayDate) {
+        date.setDate(date.getDate() + 1);
+      }
+      const iso = date.toISOString().slice(0, 10);
+      used.add(iso);
+      return index === dates.length - 1 ? sunday : iso;
+    });
+  }
+  return dates;
+}
+
 function formatDate(dateText) {
   if (!dateText) return "";
   const date = new Date(`${dateText}T12:00:00`);
@@ -368,23 +403,23 @@ function buildPlan() {
     const qualityMiles = Math.max(minRunMiles, Math.min(settings.race === "marathon" ? 10 : 8, weeklyMiles * 0.18));
     const support = distributeSupportMiles(weeklyMiles, longRunMiles, qualityMiles, settings);
 
-    const weekStartOffset = (week - 1) * 7;
-    workouts.push(workout("Easy", support.easy, "Run by heart rate. Keep this conversational. The goal is aerobic development without adding fatigue.", formatPace(fitness.easyPace), hrModel.zones.easy, week, 1, addDaysIso(settings.startDate, weekStartOffset)));
+    const trainingDates = trainingDatesForWeek(settings.startDate, week, settings.runsPerWeek);
+    workouts.push(workout("Easy", support.easy, "Run by heart rate. Keep this conversational. The goal is aerobic development without adding fatigue.", formatPace(fitness.easyPace), hrModel.zones.easy, week, 1, trainingDates[0]));
     if (week === 1 && hrModel.needsTest) {
-      workouts.push(workout("HR field test", Math.max(minRunMiles, Math.min(5, support.easy)), "Warm up easily, then run 20 minutes hard but controlled. Use the average HR from the final 15 minutes to sharpen your zones.", "By feel", "Record final-15-minute average", week, 2, addDaysIso(settings.startDate, weekStartOffset + 2), "test"));
+      workouts.push(workout("HR field test", Math.max(minRunMiles, Math.min(5, support.easy)), "Warm up easily, then run 20 minutes hard but controlled. Use the average HR from the final 15 minutes to sharpen your zones.", "By feel", "Record final-15-minute average", week, 2, trainingDates[1], "test"));
     } else {
       const interval = intervalPrescription(week, settings, fitness);
-      workouts.push(workout(quality, qualityMiles, quality === "Tempo" ? tempoPrescription(week, fitness) : interval.detail, formatPace(quality === "Tempo" ? fitness.tempoPace : fitness.intervalPace), quality === "Tempo" ? hrModel.zones.tempo : hrModel.zones.interval, week, 2, addDaysIso(settings.startDate, weekStartOffset + 2)));
+      workouts.push(workout(quality, qualityMiles, quality === "Tempo" ? tempoPrescription(week, fitness) : interval.detail, formatPace(quality === "Tempo" ? fitness.tempoPace : fitness.intervalPace), quality === "Tempo" ? hrModel.zones.tempo : hrModel.zones.interval, week, 2, trainingDates[1]));
     }
 
-    if (settings.runsPerWeek >= 4) workouts.push(workout("Easy", support.easy, "Run by heart rate. Keep this one relaxed and let the pace be whatever it needs to be.", formatPace(fitness.easyPace), hrModel.zones.easy, week, 3, addDaysIso(settings.startDate, weekStartOffset + 3)));
-    if (settings.runsPerWeek >= 5) workouts.push(workout("Steady", support.steady, "Run smoothly at a purposeful pace. This is not a race; it should build strength without draining the next workout.", formatPace(fitness.steadyPace), hrModel.zones.steady, week, 4, addDaysIso(settings.startDate, weekStartOffset + 4)));
-    if (settings.runsPerWeek >= 6) workouts.push(workout("Recovery", support.recovery, "Run very easy. This workout exists to keep the habit and improve recovery, not to prove fitness.", formatPace(fitness.easyPace + 35), hrModel.zones.recovery, week, 5, addDaysIso(settings.startDate, weekStartOffset + 5)));
+    if (settings.runsPerWeek >= 4) workouts.push(workout("Easy", support.easy, "Run by heart rate. Keep this one relaxed and let the pace be whatever it needs to be.", formatPace(fitness.easyPace), hrModel.zones.easy, week, 3, trainingDates[2]));
+    if (settings.runsPerWeek >= 5) workouts.push(workout("Steady", support.steady, "Run smoothly at a purposeful pace. This is not a race; it should build strength without draining the next workout.", formatPace(fitness.steadyPace), hrModel.zones.steady, week, 4, trainingDates[3]));
+    if (settings.runsPerWeek >= 6) workouts.push(workout("Recovery", support.recovery, "Run very easy. This workout exists to keep the habit and improve recovery, not to prove fitness.", formatPace(fitness.easyPace + 35), hrModel.zones.recovery, week, 5, trainingDates[4]));
 
     const longDetail = longRunMiles >= 18
       ? "Run by heart rate. This is a marathon-specific rehearsal: fuel every 30-35 minutes, keep the first 75% easy, and finish steady only if you feel controlled."
       : "Run by heart rate. Stay controlled early, fuel if the run is long, and finish with good form.";
-    workouts.push(workout("Long run", longRunMiles, longDetail, formatPace(fitness.easyPace + 15), hrModel.zones.long, week, 6, addDaysIso(settings.startDate, weekStartOffset + 6)));
+    workouts.push(workout("Long run", longRunMiles, longDetail, formatPace(fitness.easyPace + 15), hrModel.zones.long, week, 6, trainingDates.at(-1)));
     plan.push({ week, weeklyMiles: Math.round(weeklyMiles), workouts });
   }
 
@@ -916,7 +951,15 @@ function refreshSavedPlanCoaching() {
   const fitness = fitnessFromInputs(settings);
   const hrModel = heartRateModel(settings);
   state.plan.forEach((week) => {
+    const trainingDates = trainingDatesForWeek(settings.startDate, week.week, settings.runsPerWeek);
+    let dateIndex = 0;
     week.workouts.forEach((item) => {
+      if (item.type === "Long run") {
+        item.date = trainingDates.at(-1);
+      } else {
+        item.date = trainingDates[Math.min(dateIndex, trainingDates.length - 2)] || item.date;
+        dateIndex += 1;
+      }
       if (item.status === "complete") return;
       if (item.type === "Long run" && item.miles < minLongRunMiles) item.miles = Math.round(minLongRunMiles * 10) / 10;
       if (item.type !== "Long run" && item.miles < minRunMiles) item.miles = Math.round(minRunMiles * 10) / 10;

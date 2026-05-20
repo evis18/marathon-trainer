@@ -7,8 +7,13 @@ loadLocalEnv();
 
 const host = process.env.HOST || "127.0.0.1";
 const port = Number(process.env.PORT || 8791);
-const model = process.env.OPENAI_MODEL || "gpt-5.2";
+const model = process.env.OPENAI_MODEL || "gpt-5-mini";
 const apiKey = process.env.OPENAI_API_KEY;
+const dailyLimitUsd = Number(process.env.AI_COACH_DAILY_LIMIT_USD || 0.5);
+const monthlyLimitUsd = Number(process.env.AI_COACH_MONTHLY_LIMIT_USD || 5);
+const maxOutputTokens = 1200;
+const here = path.dirname(fileURLToPath(import.meta.url));
+const usageLogPath = path.join(here, "usage-log.json");
 
 function loadLocalEnv() {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -33,6 +38,91 @@ function sendJson(res, status, body) {
     "access-control-allow-headers": "content-type",
   });
   res.end(JSON.stringify(body));
+}
+
+function modelPricing(selectedModel) {
+  if (selectedModel.includes("gpt-5-mini")) return { inputPerMillion: 0.25, outputPerMillion: 2 };
+  if (selectedModel.includes("gpt-5.2")) return { inputPerMillion: 1.75, outputPerMillion: 14 };
+  return { inputPerMillion: Number(process.env.AI_COACH_INPUT_PER_MILLION_USD || 1), outputPerMillion: Number(process.env.AI_COACH_OUTPUT_PER_MILLION_USD || 4) };
+}
+
+function estimateTokensFromText(text) {
+  return Math.ceil(String(text).length / 4);
+}
+
+function estimateCost({ inputTokens, outputTokens }) {
+  const pricing = modelPricing(model);
+  return (inputTokens / 1_000_000) * pricing.inputPerMillion + (outputTokens / 1_000_000) * pricing.outputPerMillion;
+}
+
+function readUsageLog() {
+  if (!fs.existsSync(usageLogPath)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(usageLogPath, "utf8"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeUsageLog(entries) {
+  fs.writeFileSync(usageLogPath, `${JSON.stringify(entries, null, 2)}\n`);
+}
+
+function usageWindow(entries, prefix) {
+  return entries
+    .filter((entry) => entry.date?.startsWith(prefix))
+    .reduce((sum, entry) => sum + Number(entry.costUsd || 0), 0);
+}
+
+function usageSummary(entries = readUsageLog()) {
+  const now = new Date();
+  const day = now.toISOString().slice(0, 10);
+  const month = now.toISOString().slice(0, 7);
+  return {
+    model,
+    dailyLimitUsd,
+    monthlyLimitUsd,
+    todayUsd: usageWindow(entries, day),
+    monthUsd: usageWindow(entries, month),
+  };
+}
+
+function assertBudgetAllows(maxEstimatedCost) {
+  const entries = readUsageLog();
+  const summary = usageSummary(entries);
+  if (summary.todayUsd + maxEstimatedCost > dailyLimitUsd) {
+    return {
+      ok: false,
+      message: `AI coach daily budget would be exceeded. Today: $${summary.todayUsd.toFixed(4)}, estimated next call up to $${maxEstimatedCost.toFixed(4)}, limit: $${dailyLimitUsd.toFixed(2)}.`,
+      usage: summary,
+    };
+  }
+  if (summary.monthUsd + maxEstimatedCost > monthlyLimitUsd) {
+    return {
+      ok: false,
+      message: `AI coach monthly budget would be exceeded. This month: $${summary.monthUsd.toFixed(4)}, estimated next call up to $${maxEstimatedCost.toFixed(4)}, limit: $${monthlyLimitUsd.toFixed(2)}.`,
+      usage: summary,
+    };
+  }
+  return { ok: true, entries, usage: summary };
+}
+
+function recordUsage(raw, estimatedInputTokens) {
+  const usage = raw.usage || {};
+  const inputTokens = usage.input_tokens || usage.prompt_tokens || estimatedInputTokens;
+  const outputTokens = usage.output_tokens || usage.completion_tokens || 0;
+  const costUsd = estimateCost({ inputTokens, outputTokens });
+  const entries = readUsageLog();
+  entries.push({
+    date: new Date().toISOString(),
+    model,
+    inputTokens,
+    outputTokens,
+    costUsd,
+  });
+  writeUsageLog(entries);
+  return { costUsd, inputTokens, outputTokens, usage: usageSummary(entries) };
 }
 
 async function readJson(req) {
@@ -64,6 +154,17 @@ async function askOpenAI(payload) {
     };
   }
 
+  const input = `Analyze this runner workout and return JSON only:\n${JSON.stringify(payload, null, 2)}`;
+  const estimatedInputTokens = estimateTokensFromText(`${coachInstructions()}\n${input}`);
+  const maxEstimatedCost = estimateCost({ inputTokens: estimatedInputTokens, outputTokens: maxOutputTokens });
+  const budget = assertBudgetAllows(maxEstimatedCost);
+  if (!budget.ok) {
+    return {
+      status: 402,
+      body: { error: budget.message, usage: budget.usage },
+    };
+  }
+
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -73,8 +174,8 @@ async function askOpenAI(payload) {
     body: JSON.stringify({
       model,
       instructions: coachInstructions(),
-      input: `Analyze this runner workout and return JSON only:\n${JSON.stringify(payload, null, 2)}`,
-      max_output_tokens: 1200,
+      input,
+      max_output_tokens: maxOutputTokens,
     }),
   });
 
@@ -86,9 +187,10 @@ async function askOpenAI(payload) {
     };
   }
 
+  const spent = recordUsage(raw, estimatedInputTokens);
   const text = raw.output_text || raw.output?.flatMap((item) => item.content || []).map((part) => part.text || "").join("") || "";
   try {
-    return { status: 200, body: JSON.parse(text) };
+    return { status: 200, body: { ...JSON.parse(text), usage: spent.usage, costUsd: spent.costUsd } };
   } catch {
     return {
       status: 200,
@@ -100,6 +202,8 @@ async function askOpenAI(payload) {
           paceMultiplier: payload.ruleFallback?.pace || 1,
           summary: "Used fallback adjustment because the AI response was not structured JSON.",
         },
+        usage: spent.usage,
+        costUsd: spent.costUsd,
       },
     };
   }
@@ -108,6 +212,11 @@ async function askOpenAI(payload) {
 const server = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") {
     sendJson(res, 204, {});
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/api/usage") {
+    sendJson(res, 200, usageSummary());
     return;
   }
 

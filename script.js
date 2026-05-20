@@ -8,6 +8,7 @@ const raceDistances = {
 const minRunMiles = raceDistances["5k"];
 const minLongRunMiles = raceDistances["10k"];
 const backupEndpoint = "http://localhost:8792/api/state";
+const kmPerMile = 1.609344;
 
 const state = {
   plan: [],
@@ -22,6 +23,7 @@ const state = {
   coachStatus: "AI coach not connected yet",
   backupStatus: "Local disk backup not checked yet",
   chatMessages: [],
+  distanceUnit: "mi",
 };
 
 const els = {
@@ -68,6 +70,37 @@ function formatPace(secondsPerMile) {
   const minutes = Math.floor(secondsPerMile / 60);
   const seconds = Math.round(secondsPerMile % 60).toString().padStart(2, "0");
   return `${minutes}:${seconds}/mi`;
+}
+
+function useMetric() {
+  return state.distanceUnit === "km";
+}
+
+function formatDistance(miles, digits = 1) {
+  const value = useMetric() ? miles * kmPerMile : miles;
+  const rounded = Number(value.toFixed(digits));
+  return `${rounded} ${useMetric() ? "km" : "mi"}`;
+}
+
+function formatWholeDistance(miles) {
+  return `${Math.round(useMetric() ? miles * kmPerMile : miles)} ${useMetric() ? "km" : "mi"}`;
+}
+
+function formatDisplayPace(secondsPerMile) {
+  const secondsPerUnit = useMetric() ? secondsPerMile / kmPerMile : secondsPerMile;
+  const minutes = Math.floor(secondsPerUnit / 60);
+  const seconds = Math.round(secondsPerUnit % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}/${useMetric() ? "km" : "mi"}`;
+}
+
+function displayPaceFromStored(paceText) {
+  if (!paceText || !paceText.includes("/mi")) return paceText;
+  return formatDisplayPace(parseTimeToSeconds(paceText.replace("/mi", "")));
+}
+
+function displayWorkoutDetail(detail) {
+  if (!useMetric()) return detail;
+  return detail.replace(/\b(\d{1,2}:\d{2})\/mi\b/g, (_, pace) => formatDisplayPace(parseTimeToSeconds(pace)));
 }
 
 function formatTime(seconds) {
@@ -449,7 +482,7 @@ function assessmentCards() {
   const metrics = fitness.metrics;
   const hrModel = heartRateModel(settings);
   const performance = performanceAdjustment(settings, fitness);
-  const goalPace = formatPace(fitness.goalPace);
+  const goalPace = formatDisplayPace(fitness.goalPace);
   const projectedGap = fitness.recentPrediction - settings.goalSeconds;
   const gapText = projectedGap <= 0
     ? `Your current projection is already about ${formatTime(Math.abs(projectedGap))} faster than the goal.`
@@ -493,7 +526,7 @@ function assessmentCards() {
     {
       tone: "good",
       title: "The strategy",
-      text: `This is a ${settings.weeks}-week plan built around ${settings.runsPerWeek} runs per week. The strategy is now closer to an intermediate marathon plan: higher weekly volume, regular stepback weeks, marathon-pace or steady support work, and at least two 20-mile long runs for marathon builds of 16+ weeks.`,
+      text: `This is a ${settings.weeks}-week plan built around ${settings.runsPerWeek} runs per week. The strategy is now closer to an intermediate marathon plan: higher weekly volume, regular stepback weeks, marathon-pace or steady support work, and at least two ${formatWholeDistance(20)} long runs for marathon builds of 16+ weeks.`,
     },
     {
       tone: "watch",
@@ -503,17 +536,17 @@ function assessmentCards() {
     {
       tone: volumeTone,
       title: "Your current training base",
-      text: `I see ${metrics.count} recent runs, about ${Math.round(metrics.weeklyMiles)} miles per week over the last 4 weeks, and ${Math.round(metrics.totalMiles)} miles in the six-month window.`,
+      text: `I see ${metrics.count} recent runs, about ${formatWholeDistance(metrics.weeklyMiles)} per week over the last 4 weeks, and ${formatWholeDistance(metrics.totalMiles)} in the six-month window.`,
     },
     {
       tone: longRunTone,
       title: "Endurance base",
-      text: `Your longest recent run is ${metrics.longRun.toFixed(1)} miles. The plan will build from there rather than pretending you can jump straight to race-specific long runs.`,
+      text: `Your longest recent run is ${formatDistance(metrics.longRun)}. The plan will build from there rather than pretending you can jump straight to race-specific long runs.`,
     },
     {
       tone: recencyTone,
       title: "Latest workout",
-      text: `Your newest imported workout is ${metrics.latest.miles.toFixed(2)} miles on ${metrics.latest.date}, averaging ${formatPace(metrics.latest.seconds / metrics.latest.miles)}${metrics.latest.avgHr ? ` at ${metrics.latest.avgHr} bpm` : ""}.`,
+      text: `Your newest imported workout is ${formatDistance(metrics.latest.miles, 2)} on ${metrics.latest.date}, averaging ${formatDisplayPace(metrics.latest.seconds / metrics.latest.miles)}${metrics.latest.avgHr ? ` at ${metrics.latest.avgHr} bpm` : ""}.`,
     },
     {
       tone: "good",
@@ -546,10 +579,10 @@ function performanceAdjustment(settings = collectSettings(), fitness = fitnessFr
   let volume = 1;
   let pace = 1;
   const context = environmentalContext(latest);
-  let note = `Latest workout reviewed: ${latest.miles.toFixed(2)} miles on ${latest.date} at ${formatPace(latestPace)}${latest.avgHr ? ` and ${latest.avgHr} bpm` : ""}. ${context.summary}`;
+  let note = `Latest workout reviewed: ${formatDistance(latest.miles, 2)} on ${latest.date} at ${formatDisplayPace(latestPace)}${latest.avgHr ? ` and ${latest.avgHr} bpm` : ""}. ${context.summary}`;
   if (plannedWorkout) {
     const distanceRatio = latest.miles / Math.max(0.1, plannedWorkout.miles);
-    note += ` Planned target was ${plannedWorkout.miles} miles of ${plannedWorkout.type}. You completed ${Math.round(distanceRatio * 100)}% of the assigned distance.`;
+    note += ` Planned target was ${formatDistance(plannedWorkout.miles)} of ${plannedWorkout.type}. You completed ${Math.round(distanceRatio * 100)}% of the assigned distance.`;
   }
 
   if (avgHrRatio && avgHrRatio > 0.86 && paceVsEasy > 1.02 && !context.difficult) {
@@ -607,7 +640,7 @@ function postmortemFor(activity, workoutItem, adjustment) {
   return {
     tone,
     source: "rules",
-    text: `${workoutItem.type}: ${activity.miles.toFixed(2)} miles in ${formatTime(activity.seconds)} (${formatPace(pace)}). ${hrText} ${context.summary} ${completionText} ${adjustment.note}`,
+    text: `${workoutItem.type}: ${formatDistance(activity.miles, 2)} in ${formatTime(activity.seconds)} (${formatDisplayPace(pace)}). ${hrText} ${context.summary} ${completionText} ${adjustment.note}`,
   };
 }
 
@@ -758,6 +791,19 @@ function localPlanChatFallback(message) {
         qualityMultiplier: 1,
         paceMultiplier: 1,
         summary: "Long runs scheduled on Sundays.",
+      },
+    };
+  }
+  if (normalized.includes("km") || normalized.includes("kilometer") || normalized.includes("kilometre")) {
+    state.distanceUnit = "km";
+    return {
+      reply: "Done. I changed the plan display to kilometers and min/km. The training math underneath is unchanged.",
+      adjustment: {
+        volumeMultiplier: 1,
+        longRunMultiplier: 1,
+        qualityMultiplier: 1,
+        paceMultiplier: 1,
+        summary: "Distances shown in kilometers.",
       },
     };
   }
@@ -924,7 +970,7 @@ function renderActivities() {
   summary.innerHTML = `
     <strong>${state.activities.length} recent workouts loaded</strong>
     <span>${state.ignoredFiles} older files ignored</span>
-    <span>${Math.round(state.activities.reduce((sum, activity) => sum + activity.miles, 0))} total miles analyzed</span>
+    <span>${formatWholeDistance(state.activities.reduce((sum, activity) => sum + activity.miles, 0))} total analyzed</span>
     ${state.importReport ? `<span>${state.importReport}</span>` : ""}
   `;
 
@@ -934,8 +980,8 @@ function renderActivities() {
     card.innerHTML = `
       <strong>${activity.name}</strong>
       <span>${activity.date || "Unknown date"}</span>
-      <span>${activity.miles.toFixed(2)} mi • ${formatTime(activity.seconds)}</span>
-      <span>${activity.avgHr ? `${activity.avgHr} bpm avg${activity.maxHr ? ` / ${activity.maxHr} max` : ""}` : "HR unavailable"} • ${formatPace(activity.seconds / Math.max(0.1, activity.miles))}</span>
+      <span>${formatDistance(activity.miles, 2)} • ${formatTime(activity.seconds)}</span>
+      <span>${activity.avgHr ? `${activity.avgHr} bpm avg${activity.maxHr ? ` / ${activity.maxHr} max` : ""}` : "HR unavailable"} • ${formatDisplayPace(activity.seconds / Math.max(0.1, activity.miles))}</span>
     `;
     return card;
   }));
@@ -955,7 +1001,7 @@ function renderPlan() {
     const header = document.createElement("div");
     header.className = "week-header";
     const dates = week.workouts.length ? `${formatDate(week.workouts[0].date)}-${formatDate(week.workouts.at(-1).date)}` : "";
-    header.innerHTML = `<span>Week ${week.week} <small>${dates}</small></span><span>${week.weeklyMiles} mi</span>`;
+    header.innerHTML = `<span>Week ${week.week} <small>${dates}</small></span><span>${formatWholeDistance(week.weeklyMiles)}</span>`;
     const workouts = document.createElement("div");
     workouts.className = "workouts";
     workouts.replaceChildren(...week.workouts.map((item) => renderWorkout(item)));
@@ -1007,17 +1053,17 @@ function renderWorkout(item) {
   const target = item.targetMode === "test"
     ? `Target: ${item.pace}`
     : item.targetMode === "pace"
-    ? `Target pace: ${item.pace}`
+    ? `Target pace: ${displayPaceFromStored(item.pace)}`
     : `Target heart rate: ${item.hr}`;
   const secondary = item.targetMode === "test"
     ? `What to capture: ${item.hr}`
     : item.targetMode === "pace"
     ? `HR guardrail: ${item.hr}`
-    : `Pace guardrail: ${item.pace}`;
+    : `Pace guardrail: ${displayPaceFromStored(item.pace)}`;
   card.innerHTML = `
     <span class="tag">${item.status}</span>
-    <h3>${formatDate(item.date)} • ${item.type} • ${item.miles} mi</h3>
-    <p>${item.detail}</p>
+    <h3>${formatDate(item.date)} • ${item.type} • ${formatDistance(item.miles)}</h3>
+    <p>${displayWorkoutDetail(item.detail)}</p>
     <p><strong>${target}</strong></p>
     <p>${secondary}</p>
   `;
@@ -1613,15 +1659,21 @@ function save(options = {}) {
 
 function load() {
   const saved = localStorage.getItem("marathon-trainer-state");
-  if (!saved) return;
   try {
-    const savedState = JSON.parse(saved);
-    Object.assign(state, savedState);
-    if (state.plan.length && state.settings?.race && !("profileLocked" in savedState)) {
-      state.profileLocked = true;
+    if (saved) {
+      const savedState = JSON.parse(saved);
+      Object.assign(state, savedState);
+      if (state.plan.length && state.settings?.race && !("profileLocked" in savedState)) {
+        state.profileLocked = true;
+      }
     }
   } catch {
     localStorage.removeItem("marathon-trainer-state");
+  }
+  const urlUnit = new URLSearchParams(window.location.search).get("unit");
+  if (urlUnit === "km" || urlUnit === "mi") {
+    state.distanceUnit = urlUnit;
+    save();
   }
 }
 
@@ -1696,6 +1748,21 @@ els.coachChatForm.addEventListener("submit", async (event) => {
   state.chatMessages.push({ role: "coach", text: "Thinking through the plan...", date: new Date().toISOString() });
   save();
   render();
+
+  const deterministic = localPlanChatFallback(message);
+  if (deterministic) {
+    state.chatMessages.pop();
+    state.chatMessages.push({
+      role: "coach",
+      text: deterministic.reply,
+      adjustment: deterministic.adjustment,
+      date: new Date().toISOString(),
+    });
+    state.coachStatus = "Applied a built-in plan preference.";
+    save();
+    render();
+    return;
+  }
 
   try {
     const result = await askPlanCoach(message);

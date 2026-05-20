@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "coach": "node coach-backend/server.js",
+    "backup": "node state-backup-server.js",
     "cache": "node scripts/cache-workouts.mjs"
   }
 }

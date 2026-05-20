@@ -7,6 +7,7 @@ const raceDistances = {
 
 const minRunMiles = raceDistances["5k"];
 const minLongRunMiles = raceDistances["10k"];
+const backupEndpoint = "http://localhost:8792/api/state";
 
 const state = {
   plan: [],
@@ -19,6 +20,7 @@ const state = {
   profileLocked: false,
   lastPostmortem: null,
   coachStatus: "AI coach not connected yet",
+  backupStatus: "Local disk backup not checked yet",
 };
 
 const els = {
@@ -285,6 +287,64 @@ function tempoPrescription(week, fitness) {
   return `Warm up 12-15 minutes easy. Run ${blocks} at ${formatPace(fitness.tempoPace)} with 3:00 very easy jog between blocks. Cool down easy. This should feel controlled and sustainable, never like a time trial.`;
 }
 
+function longRunTarget(week, settings) {
+  if (settings.race !== "marathon") {
+    const cap = settings.race === "half" ? 12 : 7;
+    const base = Math.max(minLongRunMiles, settings.longRun);
+    const progress = week / Math.max(1, settings.weeks - 1);
+    return Math.min(cap, base + (cap - base) * Math.sin(progress * Math.PI / 2));
+  }
+
+  const weeks = settings.weeks;
+  const trainingWeeks = Math.max(1, weeks - 1);
+  const taperStart = Math.max(1, weeks - 2);
+  const currentLong = Math.max(minLongRunMiles, settings.longRun);
+  if (week >= taperStart) return week === weeks ? 8 : 12;
+  if (week === taperStart - 1) return 16;
+
+  const peakLong = weeks >= 18 ? 21 : 20;
+  const firstTwenty = weeks >= 18 ? Math.max(10, taperStart - 6) : Math.max(8, taperStart - 4);
+  const secondTwenty = weeks >= 18 ? Math.max(firstTwenty + 3, taperStart - 3) : Math.max(firstTwenty + 2, taperStart - 2);
+  if (weeks >= 16 && (week === firstTwenty || week === secondTwenty)) return peakLong;
+
+  const progress = week / Math.max(1, taperStart - 3);
+  let target = currentLong + (peakLong - currentLong) * Math.sin(Math.min(1, progress) * Math.PI / 2);
+
+  if (week % 4 === 0) target *= 0.72;
+  if (weeks >= 16) {
+    if (week < firstTwenty) target = Math.min(target, 18.5);
+    if (week > firstTwenty && week < secondTwenty) target = Math.min(target, 16);
+    if (week > secondTwenty) target = Math.min(target, 16);
+  }
+
+  return Math.max(minLongRunMiles, Math.min(peakLong, target));
+}
+
+function weeklyMileageTarget(week, longRunMiles, settings, performance) {
+  const racePeak = { "10k": 34, half: 44, marathon: settings.weeks >= 18 ? 58 : 54 }[settings.race];
+  const currentBase = Math.max(
+    settings.weeklyMileage,
+    longRunMiles + minRunMiles * Math.max(1, settings.runsPerWeek - 1),
+  );
+  const progress = week / Math.max(1, settings.weeks - 2);
+  const taperFactor = week > settings.weeks - 2 ? 0.55 : week > settings.weeks - 3 ? 0.72 : 1;
+  const build = currentBase + (racePeak - currentBase) * Math.sin(Math.min(1, progress) * Math.PI / 2);
+  const stepback = week % 4 === 0 && week < settings.weeks - 2 ? 0.82 : 1;
+  const floor = longRunMiles + minRunMiles * Math.max(1, settings.runsPerWeek - 1);
+  return Math.max(floor, build * stepback * taperFactor * (performance.volume || 1));
+}
+
+function distributeSupportMiles(weeklyMiles, longRunMiles, qualityMiles, settings) {
+  const supportRuns = Math.max(1, settings.runsPerWeek - 2);
+  const remaining = Math.max(minRunMiles * supportRuns, weeklyMiles - longRunMiles - qualityMiles);
+  const easy = Math.max(minRunMiles, remaining / supportRuns);
+  return {
+    easy,
+    steady: Math.max(minRunMiles, Math.min(10, easy + 1.5)),
+    recovery: Math.max(minRunMiles, easy - 1),
+  };
+}
+
 function buildPlan() {
   const settings = collectSettings();
   const fitness = fitnessFromInputs(settings);
@@ -294,37 +354,33 @@ function buildPlan() {
   fitness.steadyPace *= performance.pace || 1;
   fitness.tempoPace *= performance.pace || 1;
   fitness.intervalPace *= performance.pace || 1;
-  const startMiles = Math.max(6, settings.weeklyMileage * performance.volume);
-  const peakByRace = { "10k": 32, half: 42, marathon: 55 };
-  const peakMiles = Math.max(startMiles + 6, Math.min(peakByRace[settings.race], startMiles * 1.85));
   const plan = [];
 
   for (let week = 1; week <= settings.weeks; week += 1) {
-    const progress = week / settings.weeks;
-    const isCutback = week % 4 === 0 && week < settings.weeks - 1;
-    const isTaper = week > settings.weeks - 2;
-    const ramp = startMiles + (peakMiles - startMiles) * Math.sin(progress * Math.PI / 2);
-    const weeklyFloor = minLongRunMiles + minRunMiles * Math.max(1, settings.runsPerWeek - 1);
-    const weeklyMiles = Math.max(weeklyFloor, ramp * (isCutback ? 0.82 : 1) * (isTaper ? 0.65 : 1));
-    const longRunMiles = Math.max(minLongRunMiles, Math.min(settings.race === "marathon" ? 20 : settings.race === "half" ? 12 : 7, weeklyMiles * (settings.race === "10k" ? 0.28 : 0.36)));
+    const longRunMiles = longRunTarget(week, settings);
+    const weeklyMiles = weeklyMileageTarget(week, longRunMiles, settings, performance);
     const quality = week % 2 === 0 ? "Tempo" : "Intervals";
     const workouts = [];
-    const easyMiles = Math.max(minRunMiles, (weeklyMiles - longRunMiles - minRunMiles) / Math.max(1, settings.runsPerWeek - 2));
+    const qualityMiles = Math.max(minRunMiles, Math.min(settings.race === "marathon" ? 10 : 8, weeklyMiles * 0.18));
+    const support = distributeSupportMiles(weeklyMiles, longRunMiles, qualityMiles, settings);
 
     const weekStartOffset = (week - 1) * 7;
-    workouts.push(workout("Easy", easyMiles, "Run by heart rate. Keep this conversational. The goal is aerobic development without adding fatigue.", formatPace(fitness.easyPace), hrModel.zones.easy, week, 1, addDaysIso(settings.startDate, weekStartOffset)));
+    workouts.push(workout("Easy", support.easy, "Run by heart rate. Keep this conversational. The goal is aerobic development without adding fatigue.", formatPace(fitness.easyPace), hrModel.zones.easy, week, 1, addDaysIso(settings.startDate, weekStartOffset)));
     if (week === 1 && hrModel.needsTest) {
-      workouts.push(workout("HR field test", Math.max(minRunMiles, Math.min(4, easyMiles)), "Warm up easily, then run 20 minutes hard but controlled. Use the average HR from the final 15 minutes to sharpen your zones.", "By feel", "Record final-15-minute average", week, 2, addDaysIso(settings.startDate, weekStartOffset + 2), "test"));
+      workouts.push(workout("HR field test", Math.max(minRunMiles, Math.min(5, support.easy)), "Warm up easily, then run 20 minutes hard but controlled. Use the average HR from the final 15 minutes to sharpen your zones.", "By feel", "Record final-15-minute average", week, 2, addDaysIso(settings.startDate, weekStartOffset + 2), "test"));
     } else {
       const interval = intervalPrescription(week, settings, fitness);
-      workouts.push(workout(quality, Math.max(minRunMiles, Math.min(8, weeklyMiles * 0.18)), quality === "Tempo" ? tempoPrescription(week, fitness) : interval.detail, formatPace(quality === "Tempo" ? fitness.tempoPace : fitness.intervalPace), quality === "Tempo" ? hrModel.zones.tempo : hrModel.zones.interval, week, 2, addDaysIso(settings.startDate, weekStartOffset + 2)));
+      workouts.push(workout(quality, qualityMiles, quality === "Tempo" ? tempoPrescription(week, fitness) : interval.detail, formatPace(quality === "Tempo" ? fitness.tempoPace : fitness.intervalPace), quality === "Tempo" ? hrModel.zones.tempo : hrModel.zones.interval, week, 2, addDaysIso(settings.startDate, weekStartOffset + 2)));
     }
 
-    if (settings.runsPerWeek >= 4) workouts.push(workout("Easy", easyMiles, "Run by heart rate. Keep this one relaxed and let the pace be whatever it needs to be.", formatPace(fitness.easyPace), hrModel.zones.easy, week, 3, addDaysIso(settings.startDate, weekStartOffset + 3)));
-    if (settings.runsPerWeek >= 5) workouts.push(workout("Steady", Math.min(7, easyMiles + 1), "Run smoothly at a purposeful pace. This is not a race; it should build strength without draining the next workout.", formatPace(fitness.steadyPace), hrModel.zones.steady, week, 4, addDaysIso(settings.startDate, weekStartOffset + 4)));
-    if (settings.runsPerWeek >= 6) workouts.push(workout("Recovery", Math.max(minRunMiles, easyMiles - 1), "Run very easy. This workout exists to keep the habit and improve recovery, not to prove fitness.", formatPace(fitness.easyPace + 35), hrModel.zones.recovery, week, 5, addDaysIso(settings.startDate, weekStartOffset + 5)));
+    if (settings.runsPerWeek >= 4) workouts.push(workout("Easy", support.easy, "Run by heart rate. Keep this one relaxed and let the pace be whatever it needs to be.", formatPace(fitness.easyPace), hrModel.zones.easy, week, 3, addDaysIso(settings.startDate, weekStartOffset + 3)));
+    if (settings.runsPerWeek >= 5) workouts.push(workout("Steady", support.steady, "Run smoothly at a purposeful pace. This is not a race; it should build strength without draining the next workout.", formatPace(fitness.steadyPace), hrModel.zones.steady, week, 4, addDaysIso(settings.startDate, weekStartOffset + 4)));
+    if (settings.runsPerWeek >= 6) workouts.push(workout("Recovery", support.recovery, "Run very easy. This workout exists to keep the habit and improve recovery, not to prove fitness.", formatPace(fitness.easyPace + 35), hrModel.zones.recovery, week, 5, addDaysIso(settings.startDate, weekStartOffset + 5)));
 
-    workouts.push(workout("Long run", longRunMiles, "Run by heart rate. Stay controlled early, fuel if the run is long, and finish with good form.", formatPace(fitness.easyPace + 15), hrModel.zones.long, week, 6, addDaysIso(settings.startDate, weekStartOffset + 6)));
+    const longDetail = longRunMiles >= 18
+      ? "Run by heart rate. This is a marathon-specific rehearsal: fuel every 30-35 minutes, keep the first 75% easy, and finish steady only if you feel controlled."
+      : "Run by heart rate. Stay controlled early, fuel if the run is long, and finish with good form.";
+    workouts.push(workout("Long run", longRunMiles, longDetail, formatPace(fitness.easyPace + 15), hrModel.zones.long, week, 6, addDaysIso(settings.startDate, weekStartOffset + 6)));
     plan.push({ week, weeklyMiles: Math.round(weeklyMiles), workouts });
   }
 
@@ -398,7 +454,7 @@ function assessmentCards() {
     {
       tone: "good",
       title: "The strategy",
-      text: `This is a ${settings.weeks}-week plan built around ${settings.runsPerWeek} runs per week. The main strategy is to build durable aerobic volume, protect easy days with heart-rate caps, use one quality workout most weeks for speed or threshold fitness, and grow the long run gradually so the race goal becomes specific rather than scary.`,
+      text: `This is a ${settings.weeks}-week plan built around ${settings.runsPerWeek} runs per week. The strategy is now closer to an intermediate marathon plan: higher weekly volume, regular stepback weeks, marathon-pace or steady support work, and at least two 20-mile long runs for marathon builds of 16+ weeks.`,
     },
     {
       tone: "watch",
@@ -645,8 +701,17 @@ function renderSetup() {
     : "Set this up once. After that, work from the plan.";
 }
 
+function backupCard() {
+  return {
+    tone: state.backupStatus?.includes("saved") || state.backupStatus?.includes("restored") ? "good" : "watch",
+    title: "Local backup",
+    text: state.backupStatus || "Local disk backup has not been checked yet.",
+  };
+}
+
 function renderAssessment() {
-  els.assessment.replaceChildren(...assessmentCards().map((card) => {
+  const cards = assessmentCards().concat(backupCard());
+  els.assessment.replaceChildren(...cards.map((card) => {
     const article = document.createElement("article");
     article.className = `assessment-card ${card.tone}`;
     article.innerHTML = `<h3>${card.title}</h3><p>${card.text}</p>`;
@@ -847,6 +912,7 @@ function exportCoachContextText() {
     metrics ? `Recent training: ${metrics.count} runs, ${Math.round(metrics.weeklyMiles)} mi/week over last 4 weeks, ${Math.round(metrics.totalMiles)} miles in six-month window, longest run ${metrics.longRun.toFixed(1)} mi.` : "Recent training: no workout history loaded.",
     `Heart-rate zones: recovery ${hrModel.zones.recovery}, easy ${hrModel.zones.easy}, long ${hrModel.zones.long}, steady ${hrModel.zones.steady}, tempo ${hrModel.zones.tempo}, interval ${hrModel.zones.interval}.`,
     `AI coach status: ${state.coachStatus || "unknown"}`,
+    `Local backup status: ${state.backupStatus || "unknown"}`,
     "",
     "## Latest Postmortem",
     state.lastPostmortem ? `${state.lastPostmortem.source || "local"} / ${state.lastPostmortem.tone}: ${state.lastPostmortem.text}` : "No completed-workout postmortem yet.",
@@ -1317,8 +1383,29 @@ function parseCsvActivity(name, text) {
   return { name, date: totals.date, miles, seconds: totals.seconds, avgHr: totals.hrCount ? Math.round(totals.hr / totals.hrCount) : null, maxHr: totals.maxHr || null };
 }
 
-function save() {
+function backupStateSoon() {
+  clearTimeout(backupStateSoon.timer);
+  backupStateSoon.timer = setTimeout(() => {
+    fetch(backupEndpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ state }),
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("backup server unavailable");
+        state.backupStatus = `Disk backup saved at ${new Date().toLocaleTimeString()}.`;
+        localStorage.setItem("marathon-trainer-state", JSON.stringify(state));
+      })
+      .catch(() => {
+        state.backupStatus = "Disk backup is not running. Browser storage is still saved.";
+        localStorage.setItem("marathon-trainer-state", JSON.stringify(state));
+      });
+  }, 300);
+}
+
+function save(options = {}) {
   localStorage.setItem("marathon-trainer-state", JSON.stringify(state));
+  if (!options.skipBackup) backupStateSoon();
 }
 
 function load() {
@@ -1332,6 +1419,26 @@ function load() {
     }
   } catch {
     localStorage.removeItem("marathon-trainer-state");
+  }
+}
+
+async function restoreFromDiskBackupIfNeeded() {
+  if (state.plan.length || state.activities.length) return false;
+  try {
+    const response = await fetch(backupEndpoint);
+    if (!response.ok) {
+      state.backupStatus = "No disk backup found yet. Browser storage is active.";
+      return false;
+    }
+    const payload = await response.json();
+    if (!payload.state) return false;
+    Object.assign(state, payload.state);
+    state.backupStatus = `Restored from disk backup saved ${payload.savedAt ? new Date(payload.savedAt).toLocaleString() : "previously"}.`;
+    save({ skipBackup: true });
+    return true;
+  } catch {
+    state.backupStatus = "Disk backup server is not running. Browser storage is active.";
+    return false;
   }
 }
 
@@ -1400,5 +1507,9 @@ els.dropZone.addEventListener("drop", (event) => {
 });
 
 load();
-restoreSettingsToForm();
-loadLocalWorkoutCache().then(render);
+restoreFromDiskBackupIfNeeded()
+  .then(() => {
+    restoreSettingsToForm();
+    return loadLocalWorkoutCache();
+  })
+  .then(render);

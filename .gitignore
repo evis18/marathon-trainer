@@ -2,3 +2,5 @@ local-workouts.json
 coach-backend/.env.local
 coach-backend/coach.log
 coach-backend/usage-log.json
+state-backup.json
+backup-server.log

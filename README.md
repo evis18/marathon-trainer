@@ -19,6 +19,7 @@ Version one supports:
 - Quality days include specific interval or tempo prescriptions
 - Garmin file imports for FIT, TCX, GPX/XML, and CSV activity exports
 - Automatic filtering to the last six months of workouts
+- Marathon plans use an intermediate-style long-run progression with stepback weeks and at least two 20-mile long runs for builds of 16+ weeks
 
 For an initial setup, select a batch of local Garmin `.fit` files. After that, upload only the newest workout when you come back. The app keeps the saved history and calendar plan in browser storage.
 

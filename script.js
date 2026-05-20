@@ -108,6 +108,16 @@ function displayWorkoutDetail(detail) {
   return detail.replace(/\b(\d{1,2}:\d{2})\/mi\b/g, (_, pace) => formatDisplayPace(parseTimeToSeconds(pace)));
 }
 
+function displayFastFinish(fastFinish) {
+  if (!fastFinish) return "";
+  const paceText = String(fastFinish.pace || "8:52/mi");
+  const paces = paceText.match(/\d{1,2}:\d{2}/g);
+  const pace = paces?.length > 1
+    ? `${displayPaceFromStored(`${paces[0]}/mi`).replace(/\/(mi|km)$/, "")}-${displayPaceFromStored(`${paces[1]}/mi`)}`
+    : displayPaceFromStored(paceText);
+  return `Fast finish: run the final ${formatDistance(fastFinish.miles)} (${Math.round(fastFinish.percent * 100)}%) at controlled half-marathon effort, about ${pace}.`;
+}
+
 function formatTime(seconds) {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
@@ -786,6 +796,7 @@ async function askPlanCoach(message) {
 
 function paceTargetFromMessage(message) {
   const normalized = message.toLowerCase();
+  if (normalized.includes("fast finish") || normalized.includes("half marathon pace") || normalized.includes("hm pace")) return null;
   const paceMatches = normalized.match(/\b\d{1,2}:\d{2}\b/g) || [];
   const isPaceRequest = paceMatches.length && (
     normalized.includes("target") ||
@@ -805,9 +816,46 @@ function paceTargetFromMessage(message) {
   };
 }
 
+function recentChatMentionsFastFinish() {
+  return state.chatMessages.some((message) => /fast finish|half.?marathon.?pace|hm.?pace/i.test(message.text || ""));
+}
+
+function addFastFinishesToLongRuns(paceLabel = "8:52/mi") {
+  if (!state.plan.length) return 0;
+  let changed = 0;
+  state.plan.forEach((week) => {
+    const longRun = week.workouts.find((item) => item.type === "Long run");
+    if (!longRun || longRun.status === "complete") return;
+    let percent = 0;
+    if (week.week >= 5 && week.week <= 6) percent = 0.2;
+    else if (week.week >= 7 && week.week <= 10) percent = 0.25;
+    else if (week.week >= 11) percent = 0.3;
+    if (!percent) return;
+    longRun.fastFinish = {
+      percent,
+      miles: Math.round(longRun.miles * percent * 10) / 10,
+      pace: paceLabel,
+    };
+    changed += 1;
+  });
+  return changed;
+}
+
+function repairPlanFromChatHistory() {
+  const alreadyHasFastFinishes = state.plan.some((week) => week.workouts.some((item) => item.fastFinish));
+  if (!alreadyHasFastFinishes && recentChatMentionsFastFinish()) {
+    const changed = addFastFinishesToLongRuns("8:50-8:55/mi");
+    if (changed) {
+      state.importReport = `Added half-marathon-pace fast finishes to ${changed} long-run workouts from your coach chat.`;
+      save();
+    }
+  }
+}
+
 function localPlanChatFallback(message) {
   const normalized = message.toLowerCase();
   const targetPace = paceTargetFromMessage(message);
+  const paceLabel = targetPace?.label || ((normalized.match(/\b\d{1,2}:\d{2}\b/g) || []).slice(0, 2).join("-") || "8:52") + "/mi";
   const asksForKmDistance = normalized.includes("km") || normalized.includes("kilometer") || normalized.includes("kilometre");
   const asksForMileDistance = normalized.includes("distance") && (normalized.includes("mile") || normalized.includes(" mi"));
   const asksForMilePace = normalized.includes("min/mile") || normalized.includes("min mile") || normalized.includes("per mile") || normalized.includes("/mile") || normalized.includes("/mi");
@@ -826,6 +874,23 @@ function localPlanChatFallback(message) {
         qualityMultiplier: 1,
         paceMultiplier: 1,
         summary: `Goal pace changed to ${targetPace.label}.`,
+      },
+    };
+  }
+  const asksForFastFinish = normalized.includes("fast finish") || normalized.includes("half marathon pace") || normalized.includes("hm pace") || (recentChatMentionsFastFinish() && /^(yes|ok|okay|please|add|do it|sure|yep|yeah|don't worry|dont worry)/i.test(normalized));
+  if (asksForFastFinish) {
+    const changed = addFastFinishesToLongRuns(paceLabel);
+    save();
+    return {
+      reply: changed
+        ? `Done. I added half-marathon-pace fast finishes to ${changed} long-run workouts in the calendar. Weeks 5-6 finish with the final 20%, weeks 7-10 with the final 25%, and weeks 11 onward with the final 30%.`
+        : "I could not find planned long runs to update.",
+      adjustment: {
+        volumeMultiplier: 1,
+        longRunMultiplier: 1,
+        qualityMultiplier: 1,
+        paceMultiplier: 1,
+        summary: "Fast finishes added to long runs.",
       },
     };
   }
@@ -1120,6 +1185,7 @@ function renderWorkout(item) {
     <span class="tag">${item.status}</span>
     <h3>${formatDate(item.date)} • ${item.type} • ${formatDistance(item.miles)}</h3>
     <p>${displayWorkoutDetail(item.detail)}</p>
+    ${item.fastFinish ? `<p><strong>${displayFastFinish(item.fastFinish)}</strong></p>` : ""}
     <p><strong>${target}</strong></p>
     <p>${secondary}</p>
   `;
@@ -1341,6 +1407,7 @@ async function loadLocalWorkoutCache() {
     const alreadyHasCache = state.activities.some((activity) => cachedKeys.has(activityKey(activity)));
     if (state.localCacheLoaded && alreadyHasCache) {
       state.importReport ||= `Saved workout cache available: ${cacheCount} recent workouts.`;
+      repairPlanFromChatHistory();
       return true;
     }
     const loaded = mergeActivities(payload.activities || []);
@@ -1350,6 +1417,7 @@ async function loadLocalWorkoutCache() {
       ? `Saved workout cache loaded: ${loaded} recent workouts added from ${sourceLabel}.`
       : `Saved workout cache found: ${cacheCount} recent workouts already available.`;
     if (state.plan.length) adaptFutureWorkouts();
+    repairPlanFromChatHistory();
     save();
     return true;
   };
@@ -1728,6 +1796,7 @@ function load() {
   }
   const urlUnit = new URLSearchParams(window.location.search).get("unit");
   const urlPace = new URLSearchParams(window.location.search).get("pace");
+  const urlFastFinish = new URLSearchParams(window.location.search).get("fastFinish");
   if (urlUnit === "km" || urlUnit === "mi") {
     state.distanceUnit = urlUnit;
   }
@@ -1736,7 +1805,10 @@ function load() {
   } else if (!state.paceUnit) {
     state.paceUnit = state.distanceUnit;
   }
-  if (urlUnit === "km" || urlUnit === "mi" || urlPace === "km" || urlPace === "mi") save();
+  if (urlFastFinish === "1") {
+    addFastFinishesToLongRuns("8:50-8:55/mi");
+  }
+  if (urlUnit === "km" || urlUnit === "mi" || urlPace === "km" || urlPace === "mi" || urlFastFinish === "1") save();
 }
 
 async function restoreFromDiskBackupIfNeeded() {
@@ -1888,4 +1960,7 @@ restoreFromDiskBackupIfNeeded()
     restoreSettingsToForm();
     return loadLocalWorkoutCache();
   })
-  .then(render);
+  .then(() => {
+    repairPlanFromChatHistory();
+    render();
+  });

@@ -784,12 +784,51 @@ async function askPlanCoach(message) {
   return normalizePlanChatResult(result);
 }
 
+function paceTargetFromMessage(message) {
+  const normalized = message.toLowerCase();
+  const paceMatches = normalized.match(/\b\d{1,2}:\d{2}\b/g) || [];
+  const isPaceRequest = paceMatches.length && (
+    normalized.includes("target") ||
+    normalized.includes("goal") ||
+    normalized.includes("rather than") ||
+    normalized.includes("instead") ||
+    normalized.includes("pace")
+  );
+  if (!isPaceRequest) return null;
+  const unit = normalized.includes("/km") || normalized.includes("min/km") || normalized.includes("per km") ? "km" : "mi";
+  const seconds = paceMatches.slice(0, 2).map(parseTimeToSeconds).filter(Boolean);
+  if (!seconds.length) return null;
+  const average = seconds.reduce((sum, value) => sum + value, 0) / seconds.length;
+  return {
+    secondsPerMile: unit === "km" ? average * kmPerMile : average,
+    label: seconds.length > 1 ? `${paceMatches[0]}-${paceMatches[1]}/${unit}` : `${paceMatches[0]}/${unit}`,
+  };
+}
+
 function localPlanChatFallback(message) {
   const normalized = message.toLowerCase();
+  const targetPace = paceTargetFromMessage(message);
   const asksForKmDistance = normalized.includes("km") || normalized.includes("kilometer") || normalized.includes("kilometre");
   const asksForMileDistance = normalized.includes("distance") && (normalized.includes("mile") || normalized.includes(" mi"));
   const asksForMilePace = normalized.includes("min/mile") || normalized.includes("min mile") || normalized.includes("per mile") || normalized.includes("/mile") || normalized.includes("/mi");
   const asksForKmPace = normalized.includes("min/km") || normalized.includes("min km") || normalized.includes("per km") || normalized.includes("/km");
+  if (targetPace) {
+    const settings = collectSettings();
+    const newGoalSeconds = Math.round(targetPace.secondsPerMile * raceDistances[settings.race]);
+    els.goalTime.value = formatTime(newGoalSeconds);
+    state.settings = { ...settings, goalSeconds: newGoalSeconds };
+    buildPlan();
+    return {
+      reply: `Done. I changed the race goal to target roughly ${targetPace.label}, which makes the ${goalName(settings.race)} goal ${formatTime(newGoalSeconds)}. I regenerated the plan around that faster target.`,
+      adjustment: {
+        volumeMultiplier: 1,
+        longRunMultiplier: 1,
+        qualityMultiplier: 1,
+        paceMultiplier: 1,
+        summary: `Goal pace changed to ${targetPace.label}.`,
+      },
+    };
+  }
   if (normalized.includes("long") && normalized.includes("sunday")) {
     refreshSavedPlanCoaching();
     return {
@@ -803,7 +842,8 @@ function localPlanChatFallback(message) {
       },
     };
   }
-  if (asksForKmDistance || asksForMileDistance || asksForMilePace || asksForKmPace) {
+  const displayRequest = normalized.includes("display") || normalized.includes("show") || normalized.includes("unit") || normalized.includes("distance") || normalized.includes("leave") || normalized.includes("change");
+  if (displayRequest && (asksForKmDistance || asksForMileDistance || asksForMilePace || asksForKmPace)) {
     if (asksForKmDistance) state.distanceUnit = "km";
     if (asksForMileDistance) state.distanceUnit = "mi";
     if (asksForMilePace) state.paceUnit = "mi";

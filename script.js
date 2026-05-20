@@ -12,6 +12,7 @@ const state = {
   ignoredFiles: 0,
   importReport: "",
   performanceNote: "",
+  localCacheLoaded: false,
 };
 
 const els = {
@@ -580,6 +581,38 @@ function render() {
   updateSummary();
 }
 
+function mergeActivities(activities) {
+  const existingKeys = new Set(state.activities.map(activityKey));
+  const newActivities = activities.filter((activity) => {
+    if (!activity || !isWithinLastSixMonths(activity.date)) return false;
+    const key = activityKey(activity);
+    if (existingKeys.has(key)) return false;
+    existingKeys.add(key);
+    return true;
+  });
+  state.activities.push(...newActivities);
+  state.activities.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  return newActivities.length;
+}
+
+async function loadLocalWorkoutCache() {
+  if (state.localCacheLoaded) return;
+  try {
+    const response = await fetch(`local-workouts.json?cache=${Date.now()}`);
+    if (!response.ok) return;
+    const payload = await response.json();
+    const loaded = mergeActivities(payload.activities || []);
+    state.localCacheLoaded = true;
+    state.importReport = loaded
+      ? `Local workout cache loaded: ${loaded} recent workouts added.`
+      : `Local workout cache found. No new workouts needed to be added.`;
+    if (state.plan.length) adaptFutureWorkouts();
+    save();
+  } catch {
+    state.localCacheLoaded = false;
+  }
+}
+
 async function importFiles(files) {
   const imported = [];
   const supported = files.filter((file) => /\.(fit|tcx|gpx|xml|csv)$/i.test(file.name));
@@ -606,17 +639,9 @@ async function importFiles(files) {
       ignored += 1;
     }
   }
-  const existingKeys = new Set(state.activities.map(activityKey));
-  const newActivities = imported.filter((activity) => {
-    const key = activityKey(activity);
-    if (existingKeys.has(key)) return false;
-    existingKeys.add(key);
-    return true;
-  });
-  state.activities.push(...newActivities);
-  state.activities.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const newCount = mergeActivities(imported);
   state.ignoredFiles += ignored;
-  state.importReport = `Last import: ${files.length} selected, ${newActivities.length} new recent loaded, ${imported.length - newActivities.length} duplicates skipped, ${ignored} older ignored, ${failed} non-workout files skipped, ${files.length - supported.length} unsupported.`;
+  state.importReport = `Last import: ${files.length} selected, ${newCount} new recent loaded, ${imported.length - newCount} duplicates skipped, ${ignored} older ignored, ${failed} non-workout files skipped, ${files.length - supported.length} unsupported.`;
   if (state.plan.length) adaptFutureWorkouts();
   save();
   render();
@@ -945,4 +970,4 @@ els.dropZone.addEventListener("drop", (event) => {
 
 load();
 restoreSettingsToForm();
-render();
+loadLocalWorkoutCache().then(render);

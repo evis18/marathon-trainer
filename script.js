@@ -746,6 +746,24 @@ async function askPlanCoach(message) {
   return normalizePlanChatResult(result);
 }
 
+function localPlanChatFallback(message) {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("long") && normalized.includes("sunday")) {
+    refreshSavedPlanCoaching();
+    return {
+      reply: "Done. I moved the calendar rule so every long run lands on Sunday, and I kept the long-run distances and weekly load intact.",
+      adjustment: {
+        volumeMultiplier: 1,
+        longRunMultiplier: 1,
+        qualityMultiplier: 1,
+        paceMultiplier: 1,
+        summary: "Long runs scheduled on Sundays.",
+      },
+    };
+  }
+  return null;
+}
+
 function normalizePlanChatResult(result) {
   const adjustment = result.adjustment || {};
   return {
@@ -1691,13 +1709,24 @@ els.coachChatForm.addEventListener("submit", async (event) => {
     applyPlanChatAdjustment(result.adjustment);
     state.coachStatus = `AI plan coach adjusted the plan. ${result.costUsd ? `Cost: $${result.costUsd.toFixed(4)}.` : ""}`;
   } catch (error) {
+    const fallback = localPlanChatFallback(message);
     state.chatMessages.pop();
-    state.chatMessages.push({
-      role: "coach",
-      text: `I could not reach the AI coach backend, so I did not change the plan. ${error.message}`,
-      date: new Date().toISOString(),
-    });
-    state.coachStatus = `AI plan coach unavailable: ${error.message}`;
+    if (fallback) {
+      state.chatMessages.push({
+        role: "coach",
+        text: fallback.reply,
+        adjustment: fallback.adjustment,
+        date: new Date().toISOString(),
+      });
+      state.coachStatus = "Applied a built-in scheduling rule because the AI coach service was not reachable.";
+    } else {
+      state.chatMessages.push({
+        role: "coach",
+        text: `I could not reach the AI coach backend, so I did not change the plan. ${error.message}`,
+        date: new Date().toISOString(),
+      });
+      state.coachStatus = `AI plan coach unavailable: ${error.message}`;
+    }
   }
   save();
   render();

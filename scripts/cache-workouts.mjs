@@ -4,6 +4,7 @@ import path from "node:path";
 const defaultSource = "/Users/evis/Downloads/5ce7d25b-7250-42f5-b7fb-5ec0b3e9dd27_1/DI_CONNECT/DI-Connect-Uploaded-Files";
 const source = process.argv[2] || defaultSource;
 const output = new URL("../local-workouts.json", import.meta.url);
+const scriptOutput = new URL("../local-workouts-cache.js", import.meta.url);
 const supported = /\.(fit|tcx|gpx|xml|csv)$/i;
 
 async function walk(dir) {
@@ -255,5 +256,7 @@ const payload = {
 };
 
 await fs.writeFile(output, `${JSON.stringify(payload, null, 2)}\n`);
+await fs.writeFile(scriptOutput, `window.MARATHON_LOCAL_WORKOUT_CACHE = ${JSON.stringify(payload)};\n`);
 console.log(`Cached ${payload.loaded} recent workouts to ${output.pathname}`);
+console.log(`Cached browser preload to ${scriptOutput.pathname}`);
 console.log(`${payload.older} older files ignored; ${payload.skipped} non-workout/unreadable files skipped.`);

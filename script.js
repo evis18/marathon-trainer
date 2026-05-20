@@ -1171,24 +1171,35 @@ function mergeActivities(activities) {
 }
 
 async function loadLocalWorkoutCache() {
+  const applyPayload = (payload, sourceLabel) => {
+    const cacheCount = payload.activities?.length || 0;
+    if (!cacheCount) return false;
+    const cachedKeys = new Set((payload.activities || []).map(activityKey));
+    const alreadyHasCache = state.activities.some((activity) => cachedKeys.has(activityKey(activity)));
+    if (state.localCacheLoaded && alreadyHasCache) {
+      state.importReport ||= `Saved workout cache available: ${cacheCount} recent workouts.`;
+      return true;
+    }
+    const loaded = mergeActivities(payload.activities || []);
+    state.localCacheLoaded = true;
+    state.ignoredFiles = Math.max(state.ignoredFiles || 0, payload.older || 0);
+    state.importReport = loaded
+      ? `Saved workout cache loaded: ${loaded} recent workouts added from ${sourceLabel}.`
+      : `Saved workout cache found: ${cacheCount} recent workouts already available.`;
+    if (state.plan.length) adaptFutureWorkouts();
+    save();
+    return true;
+  };
+
+  if (window.MARATHON_LOCAL_WORKOUT_CACHE && applyPayload(window.MARATHON_LOCAL_WORKOUT_CACHE, "your local Garmin cache")) {
+    return;
+  }
+
   try {
     const response = await fetch(`local-workouts.json?cache=${Date.now()}`);
     if (!response.ok) return;
     const payload = await response.json();
-    const cacheCount = payload.activities?.length || 0;
-    const cachedKeys = new Set((payload.activities || []).map(activityKey));
-    const alreadyHasCache = cacheCount > 0 && state.activities.some((activity) => cachedKeys.has(activityKey(activity)));
-    if (state.localCacheLoaded && alreadyHasCache) {
-      state.importReport ||= `Local workout cache available: ${cacheCount} recent workouts.`;
-      return;
-    }
-    const loaded = mergeActivities(payload.activities || []);
-    state.localCacheLoaded = true;
-    state.importReport = loaded
-      ? `Local workout cache loaded: ${loaded} recent workouts added.`
-      : `Local workout cache found: ${cacheCount} recent workouts already available.`;
-    if (state.plan.length) adaptFutureWorkouts();
-    save();
+    applyPayload(payload, "local-workouts.json");
   } catch {
     state.localCacheLoaded = false;
   }

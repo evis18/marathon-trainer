@@ -1,4 +1,5 @@
 local-workouts.json
+local-workouts-cache.js
 coach-backend/.env.local
 coach-backend/coach.log
 coach-backend/usage-log.json

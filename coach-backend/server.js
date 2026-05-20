@@ -146,7 +146,22 @@ function coachInstructions() {
   ].join(" ");
 }
 
-async function askOpenAI(payload) {
+function planChatInstructions() {
+  return [
+    "You are an elite marathon coach collaborating with a runner inside a training-plan web app.",
+    "The runner is trying to make the initial plan right before following it.",
+    "Respond like a human coach: candid, practical, specific, and concise.",
+    "Do not return an empty response.",
+    "When the runner says the plan is too hard, reduce load intelligently without destroying the goal.",
+    "Return only valid JSON with keys: reply, adjustment.",
+    "adjustment must include volumeMultiplier, longRunMultiplier, qualityMultiplier, paceMultiplier, and summary.",
+    "Use multipliers conservatively: volume 0.75-1.10, longRun 0.75-1.05, quality 0.75-1.05, pace 0.95-1.08.",
+    "A paceMultiplier above 1.00 makes pace targets slower/easier.",
+    "If no plan change is needed, return multipliers of 1.",
+  ].join(" ");
+}
+
+async function askOpenAIJson({ instructions, payload, maxTokens = maxOutputTokens }) {
   if (!apiKey) {
     return {
       status: 500,
@@ -154,9 +169,9 @@ async function askOpenAI(payload) {
     };
   }
 
-  const input = `Analyze this runner workout and return JSON only:\n${JSON.stringify(payload, null, 2)}`;
-  const estimatedInputTokens = estimateTokensFromText(`${coachInstructions()}\n${input}`);
-  const maxEstimatedCost = estimateCost({ inputTokens: estimatedInputTokens, outputTokens: maxOutputTokens });
+  const input = JSON.stringify(payload, null, 2);
+  const estimatedInputTokens = estimateTokensFromText(`${instructions}\n${input}`);
+  const maxEstimatedCost = estimateCost({ inputTokens: estimatedInputTokens, outputTokens: maxTokens });
   const budget = assertBudgetAllows(maxEstimatedCost);
   if (!budget.ok) {
     return {
@@ -173,9 +188,9 @@ async function askOpenAI(payload) {
     },
     body: JSON.stringify({
       model,
-      instructions: coachInstructions(),
+      instructions,
       input,
-      max_output_tokens: maxOutputTokens,
+      max_output_tokens: maxTokens,
     }),
   });
 
@@ -194,19 +209,27 @@ async function askOpenAI(payload) {
   } catch {
     return {
       status: 200,
-      body: {
-        tone: "watch",
-        postmortem: text || "AI coach returned an empty response.",
-        adjustment: {
-          volumeMultiplier: payload.ruleFallback?.volume || 1,
-          paceMultiplier: payload.ruleFallback?.pace || 1,
-          summary: "Used fallback adjustment because the AI response was not structured JSON.",
-        },
-        usage: spent.usage,
-        costUsd: spent.costUsd,
-      },
+      body: { reply: text || "AI coach returned an empty response.", adjustment: {}, usage: spent.usage, costUsd: spent.costUsd },
     };
   }
+}
+
+async function askOpenAI(payload) {
+  const result = await askOpenAIJson({
+    instructions: coachInstructions(),
+    payload: { task: "Analyze this runner workout and return JSON only.", ...payload },
+  });
+  if (result.status !== 200 || result.body.tone) return result;
+  return {
+    status: result.status,
+    body: {
+      tone: "watch",
+      postmortem: result.body.reply || "AI coach returned an empty response.",
+      adjustment: result.body.adjustment || {},
+      usage: result.body.usage,
+      costUsd: result.body.costUsd,
+    },
+  };
 }
 
 const server = http.createServer(async (req, res) => {
@@ -217,6 +240,17 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && req.url === "/api/usage") {
     sendJson(res, 200, usageSummary());
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/plan-chat") {
+    const payload = await readJson(req);
+    const result = await askOpenAIJson({
+      instructions: planChatInstructions(),
+      payload,
+      maxTokens: 2200,
+    });
+    sendJson(res, result.status, result.body);
     return;
   }
 

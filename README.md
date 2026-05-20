@@ -15,6 +15,7 @@ Version one supports:
 - Calendar-style plan display saved in the browser so you can return without re-uploading history
 - Workout completion requires attaching the Garmin file for that workout
 - Optional AI coach backend uses ChatGPT for dynamic post-workout analysis and plan adjustment
+- In-page Plan Coach Chat lets you discuss and adjust the first plan without leaving the website
 - Fallback post-workout analysis still considers pace, heart rate, distance, heat, and hills before adjusting future workouts
 - Quality days include specific interval or tempo prescriptions
 - Garmin file imports for FIT, TCX, GPX/XML, and CSV activity exports

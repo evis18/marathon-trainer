@@ -85,6 +85,7 @@ h2 {
   grid-template-areas:
     "setup import"
     "setup assessment"
+    "setup chat"
     "setup plan";
   gap: 12px;
 }
@@ -94,6 +95,7 @@ h2 {
   grid-template-areas:
     "setup"
     "assessment"
+    "chat"
     "plan";
 }
 
@@ -160,6 +162,11 @@ h2 {
 
 .assessment-panel {
   grid-area: assessment;
+  padding: 14px;
+}
+
+.chat-panel {
+  grid-area: chat;
   padding: 14px;
 }
 
@@ -274,6 +281,62 @@ button.primary {
 
 .assessment-card.risk {
   border-left: 4px solid var(--red);
+}
+
+.coach-chat {
+  display: grid;
+  gap: 8px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.chat-message {
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfdfb;
+}
+
+.chat-message.user {
+  border-left: 4px solid var(--blue);
+}
+
+.chat-message.coach {
+  border-left: 4px solid var(--green);
+}
+
+.chat-message strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.chat-message p {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.chat-adjustments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.chat-adjustments span {
+  padding: 5px 7px;
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--green);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.coach-chat-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .drop-zone {

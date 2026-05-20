@@ -21,6 +21,7 @@ const state = {
   lastPostmortem: null,
   coachStatus: "AI coach not connected yet",
   backupStatus: "Local disk backup not checked yet",
+  chatMessages: [],
 };
 
 const els = {
@@ -41,6 +42,9 @@ const els = {
   recalculate: document.querySelector("#recalculate"),
   exportContext: document.querySelector("#export-context"),
   updateAfterWorkout: document.querySelector("#update-after-workout"),
+  coachChat: document.querySelector("#coach-chat"),
+  coachChatForm: document.querySelector("#coach-chat-form"),
+  coachChatInput: document.querySelector("#coach-chat-input"),
   dropZone: document.querySelector("#drop-zone"),
   fileInput: document.querySelector("#file-input"),
   folderInput: document.querySelector("#folder-input"),
@@ -652,6 +656,98 @@ async function askAiCoach(activity, workoutItem, ruleAdjustment) {
   return result;
 }
 
+function planChatContext(message) {
+  const settings = state.settings?.race ? state.settings : collectSettings();
+  const fitness = fitnessFromInputs(settings);
+  const metrics = activityMetrics();
+  const weeks = state.plan.map((week) => ({
+    week: week.week,
+    weeklyMiles: week.weeklyMiles,
+    longRun: week.workouts.find((item) => item.type === "Long run")?.miles || null,
+    workouts: week.workouts.map((item) => ({
+      type: item.type,
+      miles: item.miles,
+      target: item.targetMode === "pace" ? item.pace : item.hr,
+      status: item.status,
+    })),
+  }));
+
+  return {
+    message,
+    runner: {
+      name: settings.runnerName,
+      age: settings.age,
+      raceGoal: goalName(settings.race),
+      goalTime: formatTime(settings.goalSeconds),
+      goalPace: formatPace(fitness.goalPace),
+      runsPerWeek: settings.runsPerWeek,
+      planWeeks: settings.weeks,
+    },
+    currentFitness: {
+      readiness: fitness.readiness,
+      projectedRaceTime: formatTime(fitness.recentPrediction),
+      weeklyMileage: settings.weeklyMileage,
+      longestRecentRun: settings.longRun,
+      recentRuns: metrics?.count || 0,
+    },
+    planSummary: {
+      peakWeek: weeks.reduce((best, week) => week.weeklyMiles > best.weeklyMiles ? week : best, weeks[0] || { weeklyMiles: 0 }),
+      longRuns: weeks.map((week) => ({ week: week.week, miles: week.longRun })),
+      firstEightWeeks: weeks.slice(0, 8),
+      lastEightWeeks: weeks.slice(-8),
+    },
+    chatHistory: state.chatMessages.slice(-8),
+  };
+}
+
+async function askPlanCoach(message) {
+  const response = await fetch("http://localhost:8791/api/plan-chat", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(planChatContext(message)),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || "AI plan coach unavailable");
+  return normalizePlanChatResult(result);
+}
+
+function normalizePlanChatResult(result) {
+  const adjustment = result.adjustment || {};
+  return {
+    reply: result.reply || "I could not produce a coaching response.",
+    adjustment: {
+      volumeMultiplier: Math.max(0.75, Math.min(1.1, Number(adjustment.volumeMultiplier ?? 1))),
+      longRunMultiplier: Math.max(0.75, Math.min(1.05, Number(adjustment.longRunMultiplier ?? 1))),
+      qualityMultiplier: Math.max(0.75, Math.min(1.05, Number(adjustment.qualityMultiplier ?? 1))),
+      paceMultiplier: Math.max(0.95, Math.min(1.08, Number(adjustment.paceMultiplier ?? 1))),
+      summary: adjustment.summary || "No plan adjustment applied.",
+    },
+    usage: result.usage,
+    costUsd: result.costUsd,
+  };
+}
+
+function applyPlanChatAdjustment(adjustment) {
+  if (!state.plan.length) return;
+  state.plan.forEach((week) => {
+    week.workouts.forEach((item) => {
+      if (item.status !== "planned") return;
+      if (item.type === "Long run") {
+        item.miles = Math.max(minLongRunMiles, Math.round(item.miles * adjustment.longRunMultiplier * 10) / 10);
+      } else if (["Tempo", "Intervals", "Steady"].includes(item.type)) {
+        item.miles = Math.max(minRunMiles, Math.round(item.miles * adjustment.qualityMultiplier * adjustment.volumeMultiplier * 10) / 10);
+      } else {
+        item.miles = Math.max(minRunMiles, Math.round(item.miles * adjustment.volumeMultiplier * 10) / 10);
+      }
+      if (item.targetMode === "pace" && item.pace?.includes("/mi")) {
+        item.pace = formatPace(parseTimeToSeconds(item.pace.replace("/mi", "")) * adjustment.paceMultiplier);
+      }
+    });
+    week.weeklyMiles = Math.round(week.workouts.reduce((sum, item) => sum + item.miles, 0));
+  });
+  state.performanceNote = adjustment.summary;
+}
+
 function normalizeCoachResult(result, fallbackAdjustment) {
   const volume = Number(result.adjustment?.volumeMultiplier ?? fallbackAdjustment.volume ?? 1);
   const pace = Number(result.adjustment?.paceMultiplier ?? fallbackAdjustment.pace ?? 1);
@@ -717,6 +813,34 @@ function renderAssessment() {
     article.innerHTML = `<h3>${card.title}</h3><p>${card.text}</p>`;
     return article;
   }));
+}
+
+function renderCoachChat() {
+  if (!state.chatMessages.length) {
+    els.coachChat.innerHTML = `
+      <div class="chat-message coach">
+        <strong>Coach</strong>
+        <p>Tell me what feels wrong about the plan. For example: "this is too hard right now", "keep the 20 milers but lower weekday mileage", or "I want a more conservative first month."</p>
+      </div>
+    `;
+    return;
+  }
+
+  els.coachChat.replaceChildren(...state.chatMessages.slice(-12).map((message) => {
+    const card = document.createElement("article");
+    card.className = `chat-message ${message.role}`;
+    const adjustment = message.adjustment ? `
+      <div class="chat-adjustments">
+        <span>Volume x${message.adjustment.volumeMultiplier}</span>
+        <span>Long run x${message.adjustment.longRunMultiplier}</span>
+        <span>Quality x${message.adjustment.qualityMultiplier}</span>
+        <span>Pace x${message.adjustment.paceMultiplier}</span>
+      </div>
+    ` : "";
+    card.innerHTML = `<strong>${message.role === "user" ? "You" : "Coach"}</strong><p>${message.text}</p>${adjustment}`;
+    return card;
+  }));
+  els.coachChat.scrollTop = els.coachChat.scrollHeight;
 }
 
 function renderActivities() {
@@ -1028,6 +1152,7 @@ function render() {
   renderActivities();
   renderPlan();
   renderAssessment();
+  renderCoachChat();
   updateSummary();
 }
 
@@ -1484,6 +1609,39 @@ els.recalculate.addEventListener("click", () => {
   render();
 });
 els.exportContext.addEventListener("click", exportCoachContext);
+els.coachChatForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const message = els.coachChatInput.value.trim();
+  if (!message) return;
+  els.coachChatInput.value = "";
+  state.chatMessages.push({ role: "user", text: message, date: new Date().toISOString() });
+  state.chatMessages.push({ role: "coach", text: "Thinking through the plan...", date: new Date().toISOString() });
+  save();
+  render();
+
+  try {
+    const result = await askPlanCoach(message);
+    state.chatMessages.pop();
+    state.chatMessages.push({
+      role: "coach",
+      text: result.reply,
+      adjustment: result.adjustment,
+      date: new Date().toISOString(),
+    });
+    applyPlanChatAdjustment(result.adjustment);
+    state.coachStatus = `AI plan coach adjusted the plan. ${result.costUsd ? `Cost: $${result.costUsd.toFixed(4)}.` : ""}`;
+  } catch (error) {
+    state.chatMessages.pop();
+    state.chatMessages.push({
+      role: "coach",
+      text: `I could not reach the AI coach backend, so I did not change the plan. ${error.message}`,
+      date: new Date().toISOString(),
+    });
+    state.coachStatus = `AI plan coach unavailable: ${error.message}`;
+  }
+  save();
+  render();
+});
 els.updateAfterWorkout.addEventListener("click", updateAfterLatestWorkout);
 els.fileInput.addEventListener("change", (event) => {
   importFiles([...event.target.files]);

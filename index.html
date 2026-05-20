@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Marathon Trainer</title>
-    <link rel="stylesheet" href="styles.css?v=9">
+    <link rel="stylesheet" href="styles.css?v=10">
   </head>
   <body>
     <main class="app">
@@ -19,72 +19,82 @@
         </div>
       </header>
 
-      <section class="workspace">
-        <aside class="panel setup-panel">
-          <h2>Runner</h2>
-          <div class="field-row">
-            <label>
-              Name
-              <input id="runner-name" type="text" value="Evis" autocomplete="given-name">
-            </label>
-            <label>
-              Birthdate
-              <input id="birthdate" type="date">
-            </label>
+      <section id="workspace" class="workspace">
+        <aside id="setup-panel" class="panel setup-panel">
+          <div class="setup-summary">
+            <div>
+              <h2>Training Profile</h2>
+              <p id="profile-summary">Set this up once. After that, work from the plan.</p>
+            </div>
+            <button id="edit-setup" type="button">Edit</button>
           </div>
 
-          <h2>Goal</h2>
-          <div class="field-row">
-            <label>
-              Race
-              <select id="race-distance">
-                <option value="10k">10K</option>
-                <option value="half">Half marathon</option>
-                <option value="marathon" selected>Marathon</option>
-              </select>
-            </label>
-            <label>
-              Goal time
-              <input id="goal-time" type="text" inputmode="numeric" value="4:00:00" aria-label="Goal time">
-            </label>
-          </div>
+          <div id="setup-fields" class="setup-fields">
+            <h2>Runner</h2>
+            <div class="field-row">
+              <label>
+                Name
+                <input id="runner-name" type="text" value="Evis" autocomplete="given-name">
+              </label>
+              <label>
+                Birthdate
+                <input id="birthdate" type="date">
+              </label>
+            </div>
 
-          <div class="field-row">
-            <label>
-              Plan length, weeks
-              <input id="plan-length" type="number" min="1" max="104" value="16">
-            </label>
-            <label>
-              Runs per week
-              <select id="runs-per-week">
-                <option value="3">3</option>
-                <option value="4">4</option>
-                <option value="5" selected>5</option>
-                <option value="6">6</option>
-              </select>
-            </label>
-          </div>
+            <h2>Goal</h2>
+            <div class="field-row">
+              <label>
+                Race
+                <select id="race-distance">
+                  <option value="10k">10K</option>
+                  <option value="half">Half marathon</option>
+                  <option value="marathon" selected>Marathon</option>
+                </select>
+              </label>
+              <label>
+                Goal time
+                <input id="goal-time" type="text" inputmode="numeric" value="4:00:00" aria-label="Goal time">
+              </label>
+            </div>
 
-          <h2>Training Setup</h2>
-          <div class="field-row">
-            <label>
-              Plan starts
-              <input id="plan-start" type="date">
-            </label>
-            <label>
-              Resting HR
-              <input id="resting-hr" type="number" min="35" max="100" value="55">
-            </label>
-          </div>
+            <div class="field-row">
+              <label>
+                Plan length, weeks
+                <input id="plan-length" type="number" min="1" max="104" value="16">
+              </label>
+              <label>
+                Runs per week
+                <select id="runs-per-week">
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5" selected>5</option>
+                  <option value="6">6</option>
+                </select>
+              </label>
+            </div>
 
-          <div class="field-row single-field">
-            <label>
-              Known max HR, if you know it
-              <input id="max-hr" type="number" min="120" max="220" placeholder="Optional">
-            </label>
-          </div>
+            <h2>Training Setup</h2>
+            <div class="field-row">
+              <label>
+                Plan starts
+                <input id="plan-start" type="date">
+              </label>
+              <label>
+                Resting HR
+                <input id="resting-hr" type="number" min="35" max="100" value="55">
+              </label>
+            </div>
 
-          <button id="generate-plan" class="primary" type="button">Generate plan</button>
+            <div class="field-row single-field">
+              <label>
+                Known max HR, if you know it
+                <input id="max-hr" type="number" min="120" max="220" placeholder="Optional">
+              </label>
+            </div>
+
+            <button id="generate-plan" class="primary" type="button">Save profile and generate plan</button>
+          </div>
         </aside>
 
         <section class="panel import-panel">
@@ -139,6 +149,6 @@
         </section>
       </section>
     </main>
-    <script src="script.js?v=9"></script>
+    <script src="script.js?v=10"></script>
   </body>
 </html>

@@ -13,9 +13,14 @@ const state = {
   importReport: "",
   performanceNote: "",
   localCacheLoaded: false,
+  profileLocked: false,
 };
 
 const els = {
+  workspace: document.querySelector("#workspace"),
+  setupPanel: document.querySelector("#setup-panel"),
+  profileSummary: document.querySelector("#profile-summary"),
+  editSetup: document.querySelector("#edit-setup"),
   runnerName: document.querySelector("#runner-name"),
   birthdate: document.querySelector("#birthdate"),
   raceDistance: document.querySelector("#race-distance"),
@@ -304,6 +309,7 @@ function buildPlan() {
   state.settings = settings;
   state.plan = plan;
   state.performanceNote = performance.note;
+  state.profileLocked = true;
   updateSummary(fitness);
   save();
   render();
@@ -442,6 +448,33 @@ function updateSummary(fitness = fitnessFromInputs(collectSettings())) {
   els.projection.textContent = `Projected ${formatTime(fitness.recentPrediction)}`;
 }
 
+function profileSummaryText(settings = collectSettings()) {
+  const pieces = [
+    settings.runnerName,
+    `${goalName(settings.race)} in ${formatTime(settings.goalSeconds)}`,
+    `${settings.weeks} weeks`,
+    `${settings.runsPerWeek} runs/week`,
+    `starts ${formatDate(settings.startDate)}`,
+  ];
+  if (settings.age) pieces.push(`age ${settings.age}`);
+  return pieces.filter(Boolean).join(" | ");
+}
+
+function persistProfileDraft() {
+  state.settings = collectSettings();
+  save();
+  renderSetup();
+}
+
+function renderSetup() {
+  const locked = Boolean(state.profileLocked && state.plan.length);
+  els.workspace.classList.toggle("profile-locked", locked);
+  els.setupPanel.classList.toggle("is-locked", locked);
+  els.profileSummary.textContent = state.settings?.race
+    ? profileSummaryText(state.settings)
+    : "Set this up once. After that, work from the plan.";
+}
+
 function renderAssessment() {
   els.assessment.replaceChildren(...assessmentCards().map((card) => {
     const article = document.createElement("article");
@@ -575,6 +608,7 @@ function updateAfterLatestWorkout() {
 }
 
 function render() {
+  renderSetup();
   renderActivities();
   renderPlan();
   renderAssessment();
@@ -917,7 +951,11 @@ function load() {
   const saved = localStorage.getItem("marathon-trainer-state");
   if (!saved) return;
   try {
-    Object.assign(state, JSON.parse(saved));
+    const savedState = JSON.parse(saved);
+    Object.assign(state, savedState);
+    if (state.plan.length && state.settings?.race && !("profileLocked" in savedState)) {
+      state.profileLocked = true;
+    }
   } catch {
     localStorage.removeItem("marathon-trainer-state");
   }
@@ -936,7 +974,29 @@ function restoreSettingsToForm() {
   els.maxHr.value = settings.maxHr || "";
 }
 
+const profileInputs = [
+  els.runnerName,
+  els.birthdate,
+  els.raceDistance,
+  els.goalTime,
+  els.planLength,
+  els.runsPerWeek,
+  els.planStart,
+  els.restingHr,
+  els.maxHr,
+];
+
+profileInputs.forEach((input) => {
+  input.addEventListener("change", persistProfileDraft);
+  input.addEventListener("blur", persistProfileDraft);
+});
+
 els.generatePlan.addEventListener("click", buildPlan);
+els.editSetup.addEventListener("click", () => {
+  state.profileLocked = false;
+  save();
+  renderSetup();
+});
 els.recalculate.addEventListener("click", () => {
   adaptFutureWorkouts();
   save();

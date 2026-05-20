@@ -7,6 +7,7 @@ Version one supports:
 - Race goals for 10K, half marathon, and marathon
 - Goal time and any plan length from 1 to 104 weeks
 - Personalized runner profile with name and birthdate
+- Setup fields save locally and collapse after the plan starts
 - Age-aware heart-rate guardrails
 - Fitness assessment from recent workout history
 - Heart-rate zone estimates from imported workout HR data, with an HR field test added when the data is not strong enough

@@ -89,6 +89,15 @@ h2 {
   gap: 12px;
 }
 
+.workspace.profile-locked {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "setup"
+    "import"
+    "assessment"
+    "plan";
+}
+
 .panel {
   min-width: 0;
   border: 1px solid var(--edge);
@@ -103,6 +112,37 @@ h2 {
   align-content: start;
   gap: 14px;
   padding: 14px;
+}
+
+.setup-summary {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.setup-summary p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.setup-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.setup-panel.is-locked .setup-fields {
+  display: none;
+}
+
+.setup-panel:not(.is-locked) #edit-setup {
+  display: none;
+}
+
+.setup-panel.is-locked {
+  align-content: center;
 }
 
 .import-panel {
@@ -184,7 +224,8 @@ button.primary {
 }
 
 #update-after-workout,
-#strava-button {
+#strava-button,
+#edit-setup {
   color: var(--green);
   background: var(--soft);
   border: 1px solid #c9dfd0;

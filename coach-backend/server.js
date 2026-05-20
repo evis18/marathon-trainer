@@ -1,7 +1,7 @@
 import http from "node:http";
 
 const host = process.env.HOST || "127.0.0.1";
-const port = Number(process.env.PORT || 8789);
+const port = Number(process.env.PORT || 8790);
 const model = process.env.OPENAI_MODEL || "gpt-5.2";
 const apiKey = process.env.OPENAI_API_KEY;
 

@@ -18,7 +18,7 @@ http://localhost:8000/marathon-trainer/
 The webpage calls:
 
 ```text
-http://localhost:8789/api/coach
+http://localhost:8790/api/coach
 ```
 
 If the backend is not running or no API key is set, the site falls back to its local rule-based analysis and says so in the Workout Data note.

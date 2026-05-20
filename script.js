@@ -580,7 +580,7 @@ function coachPayload(activity, workoutItem, ruleAdjustment) {
 }
 
 async function askAiCoach(activity, workoutItem, ruleAdjustment) {
-  const response = await fetch("http://localhost:8789/api/coach", {
+  const response = await fetch("http://localhost:8790/api/coach", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(coachPayload(activity, workoutItem, ruleAdjustment)),

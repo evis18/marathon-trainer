@@ -227,7 +227,6 @@ button.primary {
 }
 
 #update-after-workout,
-#strava-button,
 #edit-setup {
   color: var(--green);
   background: var(--soft);
@@ -239,8 +238,7 @@ button.primary {
   gap: 10px;
 }
 
-.assessment-card,
-.strava-box {
+.assessment-card {
   border: 1px solid var(--edge);
   border-radius: 8px;
   padding: 12px;
@@ -252,8 +250,7 @@ button.primary {
   font-size: 1rem;
 }
 
-.assessment-card p,
-.strava-box span {
+.assessment-card p {
   display: block;
   color: var(--muted);
   font-size: 0.9rem;
@@ -270,12 +267,6 @@ button.primary {
 
 .assessment-card.risk {
   border-left: 4px solid var(--red);
-}
-
-.strava-box {
-  display: grid;
-  gap: 8px;
-  margin-top: 10px;
 }
 
 .drop-zone {

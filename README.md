@@ -22,17 +22,6 @@ Version one supports:
 
 For an initial setup, select a batch of local Garmin `.fit` files. After that, upload only the newest workout when you come back. The app keeps the saved history and calendar plan in browser storage.
 
-## Strava direct sync
-
-Direct Strava sync is not something a static GitHub Pages page can safely do by itself. Strava uses OAuth, which requires a client secret and access tokens. Those must live in a small backend, not in public browser code.
-
-The `strava-backend/` folder contains a starter backend plan for the next step:
-
-1. Create a Strava API app.
-2. Put `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`, and `STRAVA_REDIRECT_URI` in the backend environment.
-3. Run/deploy the backend.
-4. Point the webpage at the backend endpoint to fetch the latest activities.
-
 ## AI coach
 
 The browser app cannot safely store an OpenAI API key, so ChatGPT coaching runs through the local `coach-backend/` service.

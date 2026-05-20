@@ -38,7 +38,6 @@ const els = {
   generatePlan: document.querySelector("#generate-plan"),
   recalculate: document.querySelector("#recalculate"),
   updateAfterWorkout: document.querySelector("#update-after-workout"),
-  stravaButton: document.querySelector("#strava-button"),
   dropZone: document.querySelector("#drop-zone"),
   fileInput: document.querySelector("#file-input"),
   folderInput: document.querySelector("#folder-input"),
@@ -374,7 +373,7 @@ function assessmentCards() {
       {
         tone: "watch",
         title: `${settings.runnerName}, I need your workout history`,
-        text: `I can draft a ${settings.weeks}-week ${goalName(settings.race)} plan from your goal, but I cannot honestly assess your current fitness until you import recent workouts or connect Strava.`,
+        text: `I can draft a ${settings.weeks}-week ${goalName(settings.race)} plan from your goal, but I cannot honestly assess your current fitness until you import recent Garmin workouts.`,
       },
       {
         tone: "watch",
@@ -1295,10 +1294,6 @@ els.recalculate.addEventListener("click", () => {
   render();
 });
 els.updateAfterWorkout.addEventListener("click", updateAfterLatestWorkout);
-els.stravaButton.addEventListener("click", () => {
-  state.importReport = "Strava direct sync is the right next step, but it needs a tiny private backend so your Strava login token is not exposed on GitHub Pages. I added the setup notes in the repo.";
-  render();
-});
 els.fileInput.addEventListener("change", (event) => {
   importFiles([...event.target.files]);
   event.target.value = "";

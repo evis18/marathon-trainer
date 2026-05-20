@@ -24,6 +24,7 @@ const state = {
   backupStatus: "Local disk backup not checked yet",
   chatMessages: [],
   distanceUnit: "mi",
+  paceUnit: "mi",
 };
 
 const els = {
@@ -76,6 +77,10 @@ function useMetric() {
   return state.distanceUnit === "km";
 }
 
+function useMetricPace() {
+  return state.paceUnit === "km";
+}
+
 function formatDistance(miles, digits = 1) {
   const value = useMetric() ? miles * kmPerMile : miles;
   const rounded = Number(value.toFixed(digits));
@@ -87,10 +92,10 @@ function formatWholeDistance(miles) {
 }
 
 function formatDisplayPace(secondsPerMile) {
-  const secondsPerUnit = useMetric() ? secondsPerMile / kmPerMile : secondsPerMile;
+  const secondsPerUnit = useMetricPace() ? secondsPerMile / kmPerMile : secondsPerMile;
   const minutes = Math.floor(secondsPerUnit / 60);
   const seconds = Math.round(secondsPerUnit % 60).toString().padStart(2, "0");
-  return `${minutes}:${seconds}/${useMetric() ? "km" : "mi"}`;
+  return `${minutes}:${seconds}/${useMetricPace() ? "km" : "mi"}`;
 }
 
 function displayPaceFromStored(paceText) {
@@ -99,7 +104,7 @@ function displayPaceFromStored(paceText) {
 }
 
 function displayWorkoutDetail(detail) {
-  if (!useMetric()) return detail;
+  if (!useMetricPace()) return detail;
   return detail.replace(/\b(\d{1,2}:\d{2})\/mi\b/g, (_, pace) => formatDisplayPace(parseTimeToSeconds(pace)));
 }
 
@@ -781,6 +786,10 @@ async function askPlanCoach(message) {
 
 function localPlanChatFallback(message) {
   const normalized = message.toLowerCase();
+  const asksForKmDistance = normalized.includes("km") || normalized.includes("kilometer") || normalized.includes("kilometre");
+  const asksForMileDistance = normalized.includes("distance") && (normalized.includes("mile") || normalized.includes(" mi"));
+  const asksForMilePace = normalized.includes("min/mile") || normalized.includes("min mile") || normalized.includes("per mile") || normalized.includes("/mile") || normalized.includes("/mi");
+  const asksForKmPace = normalized.includes("min/km") || normalized.includes("min km") || normalized.includes("per km") || normalized.includes("/km");
   if (normalized.includes("long") && normalized.includes("sunday")) {
     refreshSavedPlanCoaching();
     return {
@@ -794,16 +803,23 @@ function localPlanChatFallback(message) {
       },
     };
   }
-  if (normalized.includes("km") || normalized.includes("kilometer") || normalized.includes("kilometre")) {
-    state.distanceUnit = "km";
+  if (asksForKmDistance || asksForMileDistance || asksForMilePace || asksForKmPace) {
+    if (asksForKmDistance) state.distanceUnit = "km";
+    if (asksForMileDistance) state.distanceUnit = "mi";
+    if (asksForMilePace) state.paceUnit = "mi";
+    if (asksForKmPace) state.paceUnit = "km";
+    if (asksForKmDistance && !asksForMilePace && !asksForKmPace) state.paceUnit = "km";
+    const distanceLabel = state.distanceUnit === "km" ? "kilometers" : "miles";
+    const paceLabel = state.paceUnit === "km" ? "min/km" : "min/mile";
+    const summary = `Distances shown in ${distanceLabel}; paces shown as ${paceLabel}.`;
     return {
-      reply: "Done. I changed the plan display to kilometers and min/km. The training math underneath is unchanged.",
+      reply: `Done. I changed the display so distances stay in ${distanceLabel} and paces show as ${paceLabel}. The training math underneath is unchanged.`,
       adjustment: {
         volumeMultiplier: 1,
         longRunMultiplier: 1,
         qualityMultiplier: 1,
         paceMultiplier: 1,
-        summary: "Distances shown in kilometers.",
+        summary,
       },
     };
   }
@@ -1671,10 +1687,16 @@ function load() {
     localStorage.removeItem("marathon-trainer-state");
   }
   const urlUnit = new URLSearchParams(window.location.search).get("unit");
+  const urlPace = new URLSearchParams(window.location.search).get("pace");
   if (urlUnit === "km" || urlUnit === "mi") {
     state.distanceUnit = urlUnit;
-    save();
   }
+  if (urlPace === "km" || urlPace === "mi") {
+    state.paceUnit = urlPace;
+  } else if (!state.paceUnit) {
+    state.paceUnit = state.distanceUnit;
+  }
+  if (urlUnit === "km" || urlUnit === "mi" || urlPace === "km" || urlPace === "mi") save();
 }
 
 async function restoreFromDiskBackupIfNeeded() {

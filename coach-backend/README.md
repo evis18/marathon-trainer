@@ -4,8 +4,16 @@ This local backend lets the Marathon Trainer ask ChatGPT for a dynamic workout p
 
 ## Start
 
+Create `coach-backend/.env.local`:
+
+```text
+OPENAI_API_KEY=your_api_key_here
+OPENAI_MODEL=gpt-5.2
+```
+
+Then start the backend:
+
 ```sh
-export OPENAI_API_KEY="your_api_key_here"
 npm start
 ```
 

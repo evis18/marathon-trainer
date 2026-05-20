@@ -1,9 +1,29 @@
 import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+loadLocalEnv();
 
 const host = process.env.HOST || "127.0.0.1";
 const port = Number(process.env.PORT || 8790);
 const model = process.env.OPENAI_MODEL || "gpt-5.2";
 const apiKey = process.env.OPENAI_API_KEY;
+
+function loadLocalEnv() {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const envPath = path.join(here, ".env.local");
+  if (!fs.existsSync(envPath)) return;
+  const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) continue;
+    const index = trimmed.indexOf("=");
+    const key = trimmed.slice(0, index).trim();
+    const value = trimmed.slice(index + 1).trim().replace(/^['"]|['"]$/g, "");
+    if (key && !process.env[key]) process.env[key] = value;
+  }
+}
 
 function sendJson(res, status, body) {
   res.writeHead(status, {

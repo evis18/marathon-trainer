@@ -1,0 +1,10 @@
+{
+  "name": "marathon-trainer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "coach": "node coach-backend/server.js",
+    "cache": "node scripts/cache-workouts.mjs"
+  }
+}

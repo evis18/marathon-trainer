@@ -37,6 +37,7 @@ const els = {
   maxHr: document.querySelector("#max-hr"),
   generatePlan: document.querySelector("#generate-plan"),
   recalculate: document.querySelector("#recalculate"),
+  exportContext: document.querySelector("#export-context"),
   updateAfterWorkout: document.querySelector("#update-after-workout"),
   dropZone: document.querySelector("#drop-zone"),
   fileInput: document.querySelector("#file-input"),
@@ -807,6 +808,88 @@ function renderWorkout(item) {
   return card;
 }
 
+function workoutLine(item) {
+  const target = item.targetMode === "pace" ? item.pace : item.hr;
+  return `${item.date} | Week ${item.week} | ${item.type} | ${item.miles} mi | ${item.status} | target ${target} | ${item.detail}`;
+}
+
+function activityLine(activity) {
+  const pace = formatPace(activity.seconds / Math.max(0.1, activity.miles));
+  return `${activity.date} | ${activity.miles.toFixed(2)} mi | ${formatTime(activity.seconds)} | ${pace} | avg HR ${activity.avgHr || "n/a"} | max HR ${activity.maxHr || "n/a"} | ascent ${activity.ascentFeet ? Math.round(activity.ascentFeet) : "n/a"} ft | temp ${activity.avgTempF ? Math.round(activity.avgTempF) : "n/a"} F`;
+}
+
+function exportCoachContextText() {
+  const settings = state.settings?.race ? state.settings : collectSettings();
+  const fitness = fitnessFromInputs(settings);
+  const hrModel = heartRateModel(settings);
+  const metrics = activityMetrics();
+  const recent = recentActivities().slice(-20);
+  const future = state.plan.flatMap((week) => week.workouts).filter((item) => item.status === "planned").slice(0, 24);
+  const completed = state.plan.flatMap((week) => week.workouts).filter((item) => item.status === "complete").slice(-10);
+
+  return [
+    "# Marathon Trainer Coach Context",
+    "",
+    "Use this context to discuss, critique, and adjust my training plan. Be candid and specific, like an elite running coach.",
+    "",
+    "## Runner And Goal",
+    `Name: ${settings.runnerName}`,
+    `Age: ${settings.age || "unknown"}`,
+    `Race goal: ${goalName(settings.race)} in ${formatTime(settings.goalSeconds)}`,
+    `Goal pace: ${formatPace(fitness.goalPace)}`,
+    `Plan length: ${settings.weeks} weeks`,
+    `Runs per week: ${settings.runsPerWeek}`,
+    `Plan start: ${settings.startDate}`,
+    "",
+    "## Current Assessment",
+    `Readiness: ${fitness.readiness}%`,
+    `Projected race time: ${formatTime(fitness.recentPrediction)}`,
+    metrics ? `Recent training: ${metrics.count} runs, ${Math.round(metrics.weeklyMiles)} mi/week over last 4 weeks, ${Math.round(metrics.totalMiles)} miles in six-month window, longest run ${metrics.longRun.toFixed(1)} mi.` : "Recent training: no workout history loaded.",
+    `Heart-rate zones: recovery ${hrModel.zones.recovery}, easy ${hrModel.zones.easy}, long ${hrModel.zones.long}, steady ${hrModel.zones.steady}, tempo ${hrModel.zones.tempo}, interval ${hrModel.zones.interval}.`,
+    `AI coach status: ${state.coachStatus || "unknown"}`,
+    "",
+    "## Latest Postmortem",
+    state.lastPostmortem ? `${state.lastPostmortem.source || "local"} / ${state.lastPostmortem.tone}: ${state.lastPostmortem.text}` : "No completed-workout postmortem yet.",
+    "",
+    "## Recent Workouts",
+    recent.length ? recent.map(activityLine).join("\n") : "No recent workouts loaded.",
+    "",
+    "## Completed Plan Workouts",
+    completed.length ? completed.map(workoutLine).join("\n") : "No plan workouts marked complete yet.",
+    "",
+    "## Upcoming Planned Workouts",
+    future.length ? future.map(workoutLine).join("\n") : "No upcoming planned workouts.",
+    "",
+    "## What I Want From You",
+    "Help me understand whether the plan is appropriate, what to adjust next, and what to watch for based on my recent performance.",
+  ].join("\n");
+}
+
+function downloadTextFile(filename, text) {
+  const blob = new Blob([text], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function exportCoachContext() {
+  const text = exportCoachContextText();
+  try {
+    await navigator.clipboard.writeText(text);
+    state.importReport = "Coach context copied to clipboard and downloaded as a text file.";
+  } catch {
+    state.importReport = "Coach context downloaded as a text file.";
+  }
+  downloadTextFile(`marathon-coach-context-${todayIso()}.md`, text);
+  save();
+  render();
+}
+
 async function completeWorkoutWithFile(item, file) {
   let activity = null;
   try {
@@ -1293,6 +1376,7 @@ els.recalculate.addEventListener("click", () => {
   save();
   render();
 });
+els.exportContext.addEventListener("click", exportCoachContext);
 els.updateAfterWorkout.addEventListener("click", updateAfterLatestWorkout);
 els.fileInput.addEventListener("change", (event) => {
   importFiles([...event.target.files]);

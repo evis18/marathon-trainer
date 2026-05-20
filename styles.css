@@ -227,10 +227,17 @@ button.primary {
 }
 
 #update-after-workout,
+#export-context,
 #edit-setup {
   color: var(--green);
   background: var(--soft);
   border: 1px solid #c9dfd0;
+}
+
+.heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .assessment {

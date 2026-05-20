@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Marathon Trainer</title>
-    <link rel="stylesheet" href="styles.css?v=8">
+    <link rel="stylesheet" href="styles.css?v=9">
   </head>
   <body>
     <main class="app">
@@ -21,6 +21,18 @@
 
       <section class="workspace">
         <aside class="panel setup-panel">
+          <h2>Runner</h2>
+          <div class="field-row">
+            <label>
+              Name
+              <input id="runner-name" type="text" value="Evis" autocomplete="given-name">
+            </label>
+            <label>
+              Birthdate
+              <input id="birthdate" type="date">
+            </label>
+          </div>
+
           <h2>Goal</h2>
           <div class="field-row">
             <label>
@@ -39,13 +51,8 @@
 
           <div class="field-row">
             <label>
-              Plan length
-              <select id="plan-length">
-                <option value="10">10 weeks</option>
-                <option value="12">12 weeks</option>
-                <option value="16" selected>16 weeks</option>
-                <option value="52">52 weeks</option>
-              </select>
+              Plan length, weeks
+              <input id="plan-length" type="number" min="1" max="104" value="16">
             </label>
             <label>
               Runs per week
@@ -58,38 +65,11 @@
             </label>
           </div>
 
-          <h2>Current Fitness</h2>
+          <h2>Training Setup</h2>
           <div class="field-row">
             <label>
-              Weekly miles
-              <input id="weekly-mileage" type="number" min="0" max="120" value="20">
-            </label>
-            <label>
-              Long run miles
-              <input id="long-run" type="number" min="0" max="40" value="8">
-            </label>
-          </div>
-
-          <div class="field-row">
-            <label>
-              Recent race/test
-              <select id="recent-distance">
-                <option value="5k">5K</option>
-                <option value="10k" selected>10K</option>
-                <option value="half">Half marathon</option>
-                <option value="none">None</option>
-              </select>
-            </label>
-            <label>
-              Recent time
-              <input id="recent-time" type="text" inputmode="numeric" value="55:00">
-            </label>
-          </div>
-
-          <div class="field-row">
-            <label>
-              Age
-              <input id="age" type="number" min="12" max="100" value="45">
+              Plan starts
+              <input id="plan-start" type="date">
             </label>
             <label>
               Resting HR
@@ -110,21 +90,21 @@
         <section class="panel import-panel">
           <div class="panel-heading">
             <div>
-              <h2>Garmin Files</h2>
-              <p>Upload Garmin FIT, TCX, GPX, XML, or CSV files. Older than six months is ignored.</p>
+              <h2>Workout Data</h2>
+              <p>Upload old files once. Later, upload only the newest workout and the saved plan will adapt.</p>
             </div>
           </div>
           <div id="drop-zone" class="drop-zone">
-            <strong>Drop Garmin files here</strong>
+            <strong>Drop workout files here</strong>
             <span>or use the file pickers below</span>
           </div>
           <div class="import-controls">
             <label class="native-import">
-              Import files
+              Import latest workout
               <input id="file-input" type="file" multiple accept=".fit,.tcx,.gpx,.xml,.csv">
             </label>
             <label class="native-import">
-              Import folder
+              Import history folder
               <input id="folder-input" type="file" multiple webkitdirectory>
             </label>
           </div>
@@ -134,8 +114,8 @@
         <section class="panel assessment-panel">
           <div class="panel-heading">
             <div>
-              <h2>Fitness Assessment</h2>
-              <p>Plain-English read on where you are versus the goal currently entered.</p>
+              <h2>Plan Strategy</h2>
+              <p>Plain-English strategy for getting from your current training to the goal.</p>
             </div>
             <button id="update-after-workout" type="button">Update after workout</button>
           </div>
@@ -150,15 +130,15 @@
         <section class="panel plan-panel">
           <div class="panel-heading">
             <div>
-              <h2>Adaptive Plan</h2>
-              <p id="plan-note">Generate a plan, then import runs or mark workouts as completed/skipped.</p>
+              <h2>Calendar Plan</h2>
+              <p id="plan-note">Generate a plan once, then return here and import the latest workout.</p>
             </div>
-            <button id="recalculate" type="button">Recalculate</button>
+            <button id="recalculate" type="button">Recalculate from performance</button>
           </div>
           <div id="plan-grid" class="plan-grid"></div>
         </section>
       </section>
     </main>
-    <script src="script.js?v=8"></script>
+    <script src="script.js?v=9"></script>
   </body>
 </html>

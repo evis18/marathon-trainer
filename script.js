@@ -11,18 +11,17 @@ const state = {
   settings: {},
   ignoredFiles: 0,
   importReport: "",
+  performanceNote: "",
 };
 
 const els = {
+  runnerName: document.querySelector("#runner-name"),
+  birthdate: document.querySelector("#birthdate"),
   raceDistance: document.querySelector("#race-distance"),
   goalTime: document.querySelector("#goal-time"),
   planLength: document.querySelector("#plan-length"),
   runsPerWeek: document.querySelector("#runs-per-week"),
-  weeklyMileage: document.querySelector("#weekly-mileage"),
-  longRun: document.querySelector("#long-run"),
-  recentDistance: document.querySelector("#recent-distance"),
-  recentTime: document.querySelector("#recent-time"),
-  age: document.querySelector("#age"),
+  planStart: document.querySelector("#plan-start"),
   restingHr: document.querySelector("#resting-hr"),
   maxHr: document.querySelector("#max-hr"),
   generatePlan: document.querySelector("#generate-plan"),
@@ -62,8 +61,31 @@ function formatTime(seconds) {
   return `${minutes}:${String(secs).padStart(2, "0")}`;
 }
 
-function secondsToHours(seconds) {
-  return seconds / 3600;
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function addDaysIso(dateText, days) {
+  const date = new Date(`${dateText || todayIso()}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatDate(dateText) {
+  if (!dateText) return "";
+  const date = new Date(`${dateText}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return dateText;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function calculateAge(birthdate, onDate = new Date()) {
+  if (!birthdate) return null;
+  const born = new Date(`${birthdate}T12:00:00`);
+  if (Number.isNaN(born.getTime())) return null;
+  let age = onDate.getFullYear() - born.getFullYear();
+  const birthdayThisYear = new Date(onDate.getFullYear(), born.getMonth(), born.getDate());
+  if (onDate < birthdayThisYear) age -= 1;
+  return age > 0 ? age : null;
 }
 
 function riegelPredict(timeSeconds, fromMiles, toMiles) {
@@ -123,16 +145,21 @@ function activityMetrics() {
 
 function collectSettings() {
   const metrics = activityMetrics();
+  const race = els.raceDistance.value;
+  const fallbackWeeklyMileage = { "10k": 12, half: 16, marathon: 20 }[race];
+  const fallbackLongRun = { "10k": 4, half: 6, marathon: 8 }[race];
+  const birthdate = els.birthdate.value || state.settings.birthdate || "";
   return {
-    race: els.raceDistance.value,
+    runnerName: els.runnerName.value.trim() || "Runner",
+    birthdate,
+    race,
     goalSeconds: parseTimeToSeconds(els.goalTime.value),
-    weeks: Number(els.planLength.value),
+    weeks: Math.max(1, Math.min(104, Number(els.planLength.value) || 16)),
     runsPerWeek: Number(els.runsPerWeek.value),
-    weeklyMileage: metrics ? Math.max(1, Math.round(metrics.weeklyMiles)) : Number(els.weeklyMileage.value),
-    longRun: metrics ? Math.max(1, Math.round(metrics.longRun * 10) / 10) : Number(els.longRun.value),
-    recentDistance: els.recentDistance.value,
-    recentSeconds: parseTimeToSeconds(els.recentTime.value),
-    age: Number(els.age.value) || null,
+    startDate: els.planStart.value || todayIso(),
+    weeklyMileage: metrics ? Math.max(1, Math.round(metrics.weeklyMiles)) : fallbackWeeklyMileage,
+    longRun: metrics ? Math.max(1, Math.round(metrics.longRun * 10) / 10) : fallbackLongRun,
+    age: calculateAge(birthdate),
     restingHr: Number(els.restingHr.value),
     maxHr: Number(els.maxHr.value) || null,
   };
@@ -142,13 +169,10 @@ function fitnessFromInputs(settings) {
   const raceMiles = raceDistances[settings.race];
   const goalPace = settings.goalSeconds / raceMiles;
   const metrics = activityMetrics();
-  const recentMiles = raceDistances[settings.recentDistance] || raceMiles;
   const bestEffortPrediction = metrics?.bestEffort
     ? riegelPredict(metrics.bestEffort.seconds, metrics.bestEffort.miles, raceMiles)
     : null;
-  const inputPrediction = settings.recentDistance === "none" || !settings.recentSeconds
-    ? settings.goalSeconds * 1.18
-    : riegelPredict(settings.recentSeconds, recentMiles, raceMiles);
+  const inputPrediction = settings.goalSeconds * 1.18;
   const recentPrediction = bestEffortPrediction || inputPrediction;
   const mileageRatio = Math.min(1.25, settings.weeklyMileage / Math.max(10, raceMiles * 0.9));
   const longRunRatio = Math.min(1.25, settings.longRun / Math.max(4, raceMiles * 0.45));
@@ -217,12 +241,15 @@ function hrRange(settings, low, high) {
   return rangeFromReserve(model.restingHr, model.reserve, low, high);
 }
 
-function workout(type, miles, detail, pace, hr, week, day, targetMode) {
+function workout(type, miles, detail, pace, hr, week, day, date, targetMode) {
   const paceTypes = ["Tempo", "Intervals", "Steady", "Race pace"];
   const mode = targetMode || (paceTypes.includes(type) ? "pace" : "hr");
   return {
     id: `${week}-${day}-${type.replace(/\W+/g, "-")}`,
     type,
+    week,
+    day,
+    date,
     miles: Math.max(0, Math.round(miles * 10) / 10),
     detail,
     pace,
@@ -236,8 +263,12 @@ function buildPlan() {
   const settings = collectSettings();
   const fitness = fitnessFromInputs(settings);
   const hrModel = heartRateModel(settings);
-  const completionAdjustment = activityAdjustment();
-  const startMiles = Math.max(6, settings.weeklyMileage * completionAdjustment.volume);
+  const performance = performanceAdjustment(settings, fitness);
+  fitness.easyPace *= performance.pace || 1;
+  fitness.steadyPace *= performance.pace || 1;
+  fitness.tempoPace *= performance.pace || 1;
+  fitness.intervalPace *= performance.pace || 1;
+  const startMiles = Math.max(6, settings.weeklyMileage * performance.volume);
   const peakByRace = { "10k": 32, half: 42, marathon: 55 };
   const peakMiles = Math.max(startMiles + 6, Math.min(peakByRace[settings.race], startMiles * 1.85));
   const plan = [];
@@ -253,23 +284,25 @@ function buildPlan() {
     const workouts = [];
     const easyMiles = Math.max(2, (weeklyMiles - longRunMiles - 5) / Math.max(1, settings.runsPerWeek - 2));
 
-    workouts.push(workout("Easy", easyMiles, "Run by heart rate. Keep this conversational, even if pace floats.", formatPace(fitness.easyPace), hrModel.zones.easy, week, 1));
+    const weekStartOffset = (week - 1) * 7;
+    workouts.push(workout("Easy", easyMiles, "Run by heart rate. Keep this conversational. The goal is aerobic development without adding fatigue.", formatPace(fitness.easyPace), hrModel.zones.easy, week, 1, addDaysIso(settings.startDate, weekStartOffset)));
     if (week === 1 && hrModel.needsTest) {
-      workouts.push(workout("HR field test", Math.min(4, Math.max(3, easyMiles)), "Warm up easily, then run 20 minutes hard but controlled. Use the average HR from the final 15 minutes to sharpen your zones.", "By feel", "Record final-15-minute average", week, 2, "test"));
+      workouts.push(workout("HR field test", Math.min(4, Math.max(3, easyMiles)), "Warm up easily, then run 20 minutes hard but controlled. Use the average HR from the final 15 minutes to sharpen your zones.", "By feel", "Record final-15-minute average", week, 2, addDaysIso(settings.startDate, weekStartOffset + 2), "test"));
     } else {
-      workouts.push(workout(quality, Math.min(8, weeklyMiles * 0.18), quality === "Tempo" ? "Run by pace after warming up. Controlled, not a race." : "Run by pace for the repeats; recover fully enough to keep form.", formatPace(quality === "Tempo" ? fitness.tempoPace : fitness.intervalPace), quality === "Tempo" ? hrModel.zones.tempo : hrModel.zones.interval, week, 2));
+      workouts.push(workout(quality, Math.min(8, weeklyMiles * 0.18), quality === "Tempo" ? "Warm up, then run controlled faster miles. You should finish knowing you could do a little more." : "Warm up, then run the faster repeats with enough recovery to keep your form clean.", formatPace(quality === "Tempo" ? fitness.tempoPace : fitness.intervalPace), quality === "Tempo" ? hrModel.zones.tempo : hrModel.zones.interval, week, 2, addDaysIso(settings.startDate, weekStartOffset + 2)));
     }
 
-    if (settings.runsPerWeek >= 4) workouts.push(workout("Easy", easyMiles, "Run by heart rate. Keep this one comfortable.", formatPace(fitness.easyPace), hrModel.zones.easy, week, 3));
-    if (settings.runsPerWeek >= 5) workouts.push(workout("Steady", Math.min(7, easyMiles + 1), "Run by pace, smooth but not hard.", formatPace(fitness.steadyPace), hrModel.zones.steady, week, 4));
-    if (settings.runsPerWeek >= 6) workouts.push(workout("Recovery", Math.max(2, easyMiles - 1), "Run by heart rate. This should feel almost too easy.", formatPace(fitness.easyPace + 35), hrModel.zones.recovery, week, 5));
+    if (settings.runsPerWeek >= 4) workouts.push(workout("Easy", easyMiles, "Run by heart rate. Keep this one relaxed and let the pace be whatever it needs to be.", formatPace(fitness.easyPace), hrModel.zones.easy, week, 3, addDaysIso(settings.startDate, weekStartOffset + 3)));
+    if (settings.runsPerWeek >= 5) workouts.push(workout("Steady", Math.min(7, easyMiles + 1), "Run smoothly at a purposeful pace. This is not a race; it should build strength without draining the next workout.", formatPace(fitness.steadyPace), hrModel.zones.steady, week, 4, addDaysIso(settings.startDate, weekStartOffset + 4)));
+    if (settings.runsPerWeek >= 6) workouts.push(workout("Recovery", Math.max(2, easyMiles - 1), "Run very easy. This workout exists to keep the habit and improve recovery, not to prove fitness.", formatPace(fitness.easyPace + 35), hrModel.zones.recovery, week, 5, addDaysIso(settings.startDate, weekStartOffset + 5)));
 
-    workouts.push(workout("Long run", longRunMiles, "Run by heart rate. Stay controlled; finish with good form.", formatPace(fitness.easyPace + 15), hrModel.zones.long, week, 6));
+    workouts.push(workout("Long run", longRunMiles, "Run by heart rate. Stay controlled early, fuel if the run is long, and finish with good form.", formatPace(fitness.easyPace + 15), hrModel.zones.long, week, 6, addDaysIso(settings.startDate, weekStartOffset + 6)));
     plan.push({ week, weeklyMiles: Math.round(weeklyMiles), workouts });
   }
 
   state.settings = settings;
   state.plan = plan;
+  state.performanceNote = performance.note;
   updateSummary(fitness);
   save();
   render();
@@ -291,6 +324,7 @@ function assessmentCards() {
   const fitness = fitnessFromInputs(settings);
   const metrics = fitness.metrics;
   const hrModel = heartRateModel(settings);
+  const performance = performanceAdjustment(settings, fitness);
   const goalPace = formatPace(fitness.goalPace);
   const projectedGap = fitness.recentPrediction - settings.goalSeconds;
   const gapText = projectedGap <= 0
@@ -301,8 +335,8 @@ function assessmentCards() {
     return [
       {
         tone: "watch",
-        title: "I need your workout history",
-        text: `I can make a draft plan from the form fields, but I cannot honestly assess your current fitness until you import recent workouts or connect Strava.`,
+        title: `${settings.runnerName}, I need your workout history`,
+        text: `I can draft a ${settings.weeks}-week ${goalName(settings.race)} plan from your goal, but I cannot honestly assess your current fitness until you import recent workouts or connect Strava.`,
       },
       {
         tone: "watch",
@@ -320,8 +354,18 @@ function assessmentCards() {
   return [
     {
       tone: fitness.readiness >= 70 ? "good" : fitness.readiness >= 55 ? "watch" : "risk",
-      title: `${readinessLabel(fitness.readiness)} (${fitness.readiness}% readiness)`,
-      text: `For a ${goalName(settings.race)} goal of ${formatTime(settings.goalSeconds)}, you need roughly ${goalPace}. ${gapText}`,
+      title: `${settings.runnerName}, ${readinessLabel(fitness.readiness).toLowerCase()} (${fitness.readiness}% readiness)`,
+      text: `For a ${goalName(settings.race)} goal of ${formatTime(settings.goalSeconds)}, you need roughly ${goalPace}. ${gapText}${settings.age ? ` Your age (${settings.age}) is used for provisional heart-rate ceilings and recovery guardrails.` : ""}`,
+    },
+    {
+      tone: "good",
+      title: "The strategy",
+      text: `This is a ${settings.weeks}-week plan built around ${settings.runsPerWeek} runs per week. The main strategy is to build durable aerobic volume, protect easy days with heart-rate caps, use one quality workout most weeks for speed or threshold fitness, and grow the long run gradually so the race goal becomes specific rather than scary.`,
+    },
+    {
+      tone: "watch",
+      title: "How it adapts",
+      text: `${performance.note} When you upload the newest workout, the app reviews pace, mileage, and heart rate, then recalculates future workouts rather than just checking whether you clicked done.`,
     },
     {
       tone: volumeTone,
@@ -353,16 +397,42 @@ function assessmentCards() {
   ];
 }
 
-function activityAdjustment() {
-  const recent = state.activities.slice(-8);
-  const skipped = state.plan.flatMap((week) => week.workouts).filter((workoutItem) => workoutItem.status === "skipped").length;
-  const complete = state.plan.flatMap((week) => week.workouts).filter((workoutItem) => workoutItem.status === "complete").length;
-  const avgHr = recent.filter((activity) => activity.avgHr).reduce((sum, activity) => sum + activity.avgHr, 0) / Math.max(1, recent.filter((activity) => activity.avgHr).length);
-  const hrModel = heartRateModel(state.settings || collectSettings());
-  const highHr = avgHr && hrModel.maxHr ? avgHr > hrModel.maxHr * 0.84 : false;
-  const missedPenalty = skipped > complete ? 0.88 : skipped > 2 ? 0.94 : 1;
+function performanceAdjustment(settings = collectSettings(), fitness = fitnessFromInputs(settings)) {
+  const recent = recentActivities().slice(-6);
+  if (!recent.length) {
+    return { volume: 1, pace: 1, note: "No recent workout performance is loaded yet, so the plan is using conservative starting mileage." };
+  }
+
+  const hrModel = heartRateModel(settings);
+  const latest = recent.at(-1);
+  const latestPace = latest.seconds / Math.max(0.1, latest.miles);
+  const avgHrRatio = latest.avgHr && hrModel.maxHr ? latest.avgHr / hrModel.maxHr : null;
+  const paceVsEasy = latestPace / fitness.easyPace;
+  const recentMileage = recent.reduce((sum, activity) => sum + activity.miles, 0);
+  const targetMileage = Math.max(1, settings.weeklyMileage * 1.5);
+  let volume = 1;
+  let pace = 1;
+  let note = `Latest workout reviewed: ${latest.miles.toFixed(2)} miles on ${latest.date} at ${formatPace(latestPace)}${latest.avgHr ? ` and ${latest.avgHr} bpm` : ""}.`;
+
+  if (avgHrRatio && avgHrRatio > 0.86 && paceVsEasy > 1.02) {
+    volume = 0.94;
+    pace = 1.03;
+    note += " That looks harder than planned, so future mileage is eased slightly and pace targets relax.";
+  } else if (avgHrRatio && avgHrRatio < 0.76 && paceVsEasy < 0.98 && recentMileage >= targetMileage) {
+    volume = 1.03;
+    pace = 0.98;
+    note += " That suggests you are absorbing the work well, so the next draft nudges volume and paces forward carefully.";
+  } else if (recentMileage < targetMileage * 0.6) {
+    volume = 0.92;
+    note += " Recent mileage is light versus the plan, so the next draft protects you from a sudden jump.";
+  } else {
+    note += " That looks broadly in line with the plan, so future workouts stay steady.";
+  }
+
   return {
-    volume: missedPenalty * (highHr ? 0.94 : 1),
+    volume,
+    pace,
+    note,
   };
 }
 
@@ -421,13 +491,14 @@ function renderPlan() {
     return;
   }
 
-  els.planNote.textContent = "Future workouts adapt when you import files or mark workouts complete/skipped.";
+  els.planNote.textContent = "Saved calendar plan. Import the newest workout when you come back, and future workouts adapt from performance.";
   els.planGrid.replaceChildren(...state.plan.map((week) => {
     const section = document.createElement("section");
     section.className = "week";
     const header = document.createElement("div");
     header.className = "week-header";
-    header.innerHTML = `<span>Week ${week.week}</span><span>${week.weeklyMiles} mi</span>`;
+    const dates = week.workouts.length ? `${formatDate(week.workouts[0].date)}-${formatDate(week.workouts.at(-1).date)}` : "";
+    header.innerHTML = `<span>Week ${week.week} <small>${dates}</small></span><span>${week.weeklyMiles} mi</span>`;
     const workouts = document.createElement("div");
     workouts.className = "workouts";
     workouts.replaceChildren(...week.workouts.map((item) => renderWorkout(item)));
@@ -451,7 +522,7 @@ function renderWorkout(item) {
     : `Pace guardrail: ${item.pace}`;
   card.innerHTML = `
     <span class="tag">${item.status}</span>
-    <h3>${item.type} • ${item.miles} mi</h3>
+    <h3>${formatDate(item.date)} • ${item.type} • ${item.miles} mi</h3>
     <p>${item.detail}</p>
     <p><strong>${target}</strong></p>
     <p>${secondary}</p>
@@ -459,18 +530,9 @@ function renderWorkout(item) {
   const actions = document.createElement("div");
   actions.className = "workout-actions";
 
-  const done = document.createElement("button");
-  done.type = "button";
-  done.textContent = "Done";
-  done.addEventListener("click", () => {
-    item.status = "complete";
-    save();
-    render();
-  });
-
   const skipped = document.createElement("button");
   skipped.type = "button";
-  skipped.textContent = "Skipped";
+  skipped.textContent = "Mark skipped";
   skipped.addEventListener("click", () => {
     item.status = "skipped";
     adaptFutureWorkouts();
@@ -478,19 +540,22 @@ function renderWorkout(item) {
     render();
   });
 
-  actions.append(done, skipped);
+  actions.append(skipped);
   card.append(actions);
   return card;
 }
 
 function adaptFutureWorkouts() {
-  const adjustment = activityAdjustment();
+  const settings = state.settings?.race ? state.settings : collectSettings();
+  const fitness = fitnessFromInputs(settings);
+  const adjustment = performanceAdjustment(settings, fitness);
   state.plan.forEach((week) => {
     week.workouts.forEach((item) => {
       if (item.status !== "planned") return;
       item.miles = Math.round(item.miles * adjustment.volume * 10) / 10;
     });
   });
+  state.performanceNote = adjustment.note;
 }
 
 function updateAfterLatestWorkout() {
@@ -501,9 +566,8 @@ function updateAfterLatestWorkout() {
   }
   adaptFutureWorkouts();
   const latest = recentActivities().at(-1);
-  const assessment = assessmentCards()[0];
   state.importReport = latest
-    ? `Latest workout reviewed: ${latest.miles.toFixed(2)} miles on ${latest.date}. ${assessment.title}. Future planned workouts were adjusted.`
+    ? `${state.performanceNote} Future planned workouts were adjusted.`
     : "No recent workout found in the six-month window.";
   save();
   render();
@@ -542,12 +606,24 @@ async function importFiles(files) {
       ignored += 1;
     }
   }
-  state.activities.push(...imported);
+  const existingKeys = new Set(state.activities.map(activityKey));
+  const newActivities = imported.filter((activity) => {
+    const key = activityKey(activity);
+    if (existingKeys.has(key)) return false;
+    existingKeys.add(key);
+    return true;
+  });
+  state.activities.push(...newActivities);
+  state.activities.sort((a, b) => String(a.date).localeCompare(String(b.date)));
   state.ignoredFiles += ignored;
-  state.importReport = `Last import: ${files.length} selected, ${imported.length} recent loaded, ${ignored} older ignored, ${failed} non-workout files skipped, ${files.length - supported.length} unsupported.`;
-  adaptFutureWorkouts();
+  state.importReport = `Last import: ${files.length} selected, ${newActivities.length} new recent loaded, ${imported.length - newActivities.length} duplicates skipped, ${ignored} older ignored, ${failed} non-workout files skipped, ${files.length - supported.length} unsupported.`;
+  if (state.plan.length) adaptFutureWorkouts();
   save();
   render();
+}
+
+function activityKey(activity) {
+  return [activity.date, Math.round(activity.miles * 100), Math.round(activity.seconds), activity.name].join("|");
 }
 
 async function parseActivity(file) {
@@ -822,6 +898,19 @@ function load() {
   }
 }
 
+function restoreSettingsToForm() {
+  const settings = state.settings || {};
+  els.runnerName.value = settings.runnerName || els.runnerName.value;
+  els.birthdate.value = settings.birthdate || els.birthdate.value;
+  els.raceDistance.value = settings.race || els.raceDistance.value;
+  els.goalTime.value = settings.goalSeconds ? formatTime(settings.goalSeconds) : els.goalTime.value;
+  els.planLength.value = settings.weeks || els.planLength.value;
+  els.runsPerWeek.value = settings.runsPerWeek || els.runsPerWeek.value;
+  els.planStart.value = settings.startDate || els.planStart.value || todayIso();
+  els.restingHr.value = settings.restingHr || els.restingHr.value;
+  els.maxHr.value = settings.maxHr || "";
+}
+
 els.generatePlan.addEventListener("click", buildPlan);
 els.recalculate.addEventListener("click", () => {
   adaptFutureWorkouts();
@@ -855,4 +944,5 @@ els.dropZone.addEventListener("drop", (event) => {
 });
 
 load();
+restoreSettingsToForm();
 render();

@@ -5,16 +5,17 @@ A static browser app for goal-based race training plans.
 Version one supports:
 
 - Race goals for 10K, half marathon, and marathon
-- Goal time and plan length inputs
-- Age and runs-per-week inputs
-- Current fitness inputs before generating the plan
+- Goal time and any plan length from 1 to 104 weeks
+- Personalized runner profile with name and birthdate
+- Age-aware heart-rate guardrails
 - Fitness assessment from recent workout history
 - Heart-rate zone estimates from imported workout HR data, with an HR field test added when the data is not strong enough
-- Adaptive plan recalculation after completed or skipped workouts
+- Adaptive plan recalculation based on workout performance: pace, mileage, and heart rate
+- Calendar-style plan display saved in the browser so you can return without re-uploading history
 - Garmin file imports for FIT, TCX, GPX/XML, and CSV activity exports
 - Automatic filtering to the last six months of workouts
 
-For an initial test, select a batch of local Garmin `.fit` files. The app will ignore files older than six months.
+For an initial setup, select a batch of local Garmin `.fit` files. After that, upload only the newest workout when you come back. The app keeps the saved history and calendar plan in browser storage.
 
 ## Strava direct sync
 

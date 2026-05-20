@@ -320,9 +320,15 @@ button.primary {
   font-weight: 900;
 }
 
+.week-header small {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .workouts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 1px;
   background: var(--edge);
 }
@@ -357,10 +363,6 @@ button.primary {
 }
 
 .workout-actions button:nth-child(1) {
-  background: var(--green);
-}
-
-.workout-actions button:nth-child(2) {
   background: var(--red);
 }
 

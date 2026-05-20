@@ -13,6 +13,9 @@ Version one supports:
 - Heart-rate zone estimates from imported workout HR data, with an HR field test added when the data is not strong enough
 - Adaptive plan recalculation based on workout performance: pace, mileage, and heart rate
 - Calendar-style plan display saved in the browser so you can return without re-uploading history
+- Workout completion requires attaching the Garmin file for that workout
+- Post-workout analysis considers pace, heart rate, distance, heat, and hills before adjusting future workouts
+- Quality days include specific interval or tempo prescriptions
 - Garmin file imports for FIT, TCX, GPX/XML, and CSV activity exports
 - Automatic filtering to the last six months of workouts
 

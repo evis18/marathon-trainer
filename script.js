@@ -14,6 +14,7 @@ const state = {
   performanceNote: "",
   localCacheLoaded: false,
   profileLocked: false,
+  lastPostmortem: null,
 };
 
 const els = {
@@ -226,12 +227,12 @@ function heartRateModel(settings) {
     needsTest,
     source,
     zones: {
-      recovery: rangeFromReserve(restingHr, reserve, 0.58, 0.7),
-      easy: rangeFromReserve(restingHr, reserve, 0.62, 0.76),
-      steady: rangeFromReserve(restingHr, reserve, 0.72, 0.82),
-      tempo: rangeFromReserve(restingHr, reserve, 0.8, 0.88),
-      interval: rangeFromReserve(restingHr, reserve, 0.88, 0.94),
-      long: rangeFromReserve(restingHr, reserve, 0.65, 0.8),
+      recovery: rangeFromReserve(restingHr, reserve, 0.6, 0.67),
+      easy: rangeFromReserve(restingHr, reserve, 0.65, 0.72),
+      steady: rangeFromReserve(restingHr, reserve, 0.74, 0.8),
+      tempo: rangeFromReserve(restingHr, reserve, 0.82, 0.87),
+      interval: rangeFromReserve(restingHr, reserve, 0.9, 0.94),
+      long: rangeFromReserve(restingHr, reserve, 0.66, 0.74),
     },
   };
 }
@@ -265,6 +266,21 @@ function workout(type, miles, detail, pace, hr, week, day, date, targetMode) {
   };
 }
 
+function intervalPrescription(week, settings, fitness) {
+  const reps = Math.min(8, 4 + Math.floor((week - 1) / 3));
+  const minutes = settings.race === "10k" ? 3 : settings.race === "half" ? 4 : 5;
+  const recovery = minutes <= 3 ? "2:00 easy jog" : "2:30 easy jog";
+  return {
+    pace: formatPace(fitness.intervalPace),
+    detail: `Warm up 12-15 minutes easy with 4 relaxed strides. Run ${reps} x ${minutes}:00 at ${formatPace(fitness.intervalPace)} with ${recovery} between reps. Cool down easy until the total reaches the assigned mileage. Keep the first two reps controlled; the last rep should be strong, not desperate.`,
+  };
+}
+
+function tempoPrescription(week, fitness) {
+  const blocks = week < 5 ? "2 x 8 minutes" : week < 10 ? "2 x 12 minutes" : "3 x 10 minutes";
+  return `Warm up 12-15 minutes easy. Run ${blocks} at ${formatPace(fitness.tempoPace)} with 3:00 very easy jog between blocks. Cool down easy. This should feel controlled and sustainable, never like a time trial.`;
+}
+
 function buildPlan() {
   const settings = collectSettings();
   const fitness = fitnessFromInputs(settings);
@@ -295,7 +311,8 @@ function buildPlan() {
     if (week === 1 && hrModel.needsTest) {
       workouts.push(workout("HR field test", Math.min(4, Math.max(3, easyMiles)), "Warm up easily, then run 20 minutes hard but controlled. Use the average HR from the final 15 minutes to sharpen your zones.", "By feel", "Record final-15-minute average", week, 2, addDaysIso(settings.startDate, weekStartOffset + 2), "test"));
     } else {
-      workouts.push(workout(quality, Math.min(8, weeklyMiles * 0.18), quality === "Tempo" ? "Warm up, then run controlled faster miles. You should finish knowing you could do a little more." : "Warm up, then run the faster repeats with enough recovery to keep your form clean.", formatPace(quality === "Tempo" ? fitness.tempoPace : fitness.intervalPace), quality === "Tempo" ? hrModel.zones.tempo : hrModel.zones.interval, week, 2, addDaysIso(settings.startDate, weekStartOffset + 2)));
+      const interval = intervalPrescription(week, settings, fitness);
+      workouts.push(workout(quality, Math.min(8, weeklyMiles * 0.18), quality === "Tempo" ? tempoPrescription(week, fitness) : interval.detail, formatPace(quality === "Tempo" ? fitness.tempoPace : fitness.intervalPace), quality === "Tempo" ? hrModel.zones.tempo : hrModel.zones.interval, week, 2, addDaysIso(settings.startDate, weekStartOffset + 2)));
     }
 
     if (settings.runsPerWeek >= 4) workouts.push(workout("Easy", easyMiles, "Run by heart rate. Keep this one relaxed and let the pace be whatever it needs to be.", formatPace(fitness.easyPace), hrModel.zones.easy, week, 3, addDaysIso(settings.startDate, weekStartOffset + 3)));
@@ -337,9 +354,18 @@ function assessmentCards() {
   const gapText = projectedGap <= 0
     ? `Your current projection is already about ${formatTime(Math.abs(projectedGap))} faster than the goal.`
     : `Your current projection is about ${formatTime(projectedGap)} slower than the goal.`;
+  const cards = [];
+
+  if (state.lastPostmortem) {
+    cards.push({
+      tone: state.lastPostmortem.tone,
+      title: "Latest workout postmortem",
+      text: state.lastPostmortem.text,
+    });
+  }
 
   if (!metrics) {
-    return [
+    return cards.concat([
       {
         tone: "watch",
         title: `${settings.runnerName}, I need your workout history`,
@@ -350,7 +376,7 @@ function assessmentCards() {
         title: "Heart-rate zones are provisional",
         text: `Without recent HR data, I will use ${hrModel.source}. The plan will include a field test so the zones can be corrected from your own running.`,
       },
-    ];
+    ]);
   }
 
   const volumeTone = metrics.weeklyMiles >= settings.weeklyMileage * 0.9 ? "good" : "watch";
@@ -358,7 +384,7 @@ function assessmentCards() {
   const longRunTone = metrics.recentLongRun >= longRunNeed * 0.75 ? "good" : "watch";
   const recencyTone = metrics.daysSinceLatest <= 5 ? "good" : metrics.daysSinceLatest <= 12 ? "watch" : "risk";
 
-  return [
+  return cards.concat([
     {
       tone: fitness.readiness >= 70 ? "good" : fitness.readiness >= 55 ? "watch" : "risk",
       title: `${settings.runnerName}, ${readinessLabel(fitness.readiness).toLowerCase()} (${fitness.readiness}% readiness)`,
@@ -401,17 +427,17 @@ function assessmentCards() {
         ? `I found ${hrModel.hrWorkoutCount} recent workouts with HR and a highest seen HR of ${hrModel.observedPeak || "not enough data"} bpm. I will put a short HR field test into week 1 so the zones get sharper. For now they are based on ${hrModel.source}.`
         : `I am using ${hrModel.source}. Current easy-run zone is ${hrModel.zones.easy}; long-run zone is ${hrModel.zones.long}.`,
     },
-  ];
+  ]);
 }
 
-function performanceAdjustment(settings = collectSettings(), fitness = fitnessFromInputs(settings)) {
-  const recent = recentActivities().slice(-6);
+function performanceAdjustment(settings = collectSettings(), fitness = fitnessFromInputs(settings), completedActivity = null, plannedWorkout = null) {
+  const recent = completedActivity ? recentActivities().concat(completedActivity).slice(-6) : recentActivities().slice(-6);
   if (!recent.length) {
     return { volume: 1, pace: 1, note: "No recent workout performance is loaded yet, so the plan is using conservative starting mileage." };
   }
 
   const hrModel = heartRateModel(settings);
-  const latest = recent.at(-1);
+  const latest = completedActivity || recent.at(-1);
   const latestPace = latest.seconds / Math.max(0.1, latest.miles);
   const avgHrRatio = latest.avgHr && hrModel.maxHr ? latest.avgHr / hrModel.maxHr : null;
   const paceVsEasy = latestPace / fitness.easyPace;
@@ -419,12 +445,21 @@ function performanceAdjustment(settings = collectSettings(), fitness = fitnessFr
   const targetMileage = Math.max(1, settings.weeklyMileage * 1.5);
   let volume = 1;
   let pace = 1;
-  let note = `Latest workout reviewed: ${latest.miles.toFixed(2)} miles on ${latest.date} at ${formatPace(latestPace)}${latest.avgHr ? ` and ${latest.avgHr} bpm` : ""}.`;
+  const context = environmentalContext(latest);
+  let note = `Latest workout reviewed: ${latest.miles.toFixed(2)} miles on ${latest.date} at ${formatPace(latestPace)}${latest.avgHr ? ` and ${latest.avgHr} bpm` : ""}. ${context.summary}`;
+  if (plannedWorkout) {
+    const distanceRatio = latest.miles / Math.max(0.1, plannedWorkout.miles);
+    note += ` Planned target was ${plannedWorkout.miles} miles of ${plannedWorkout.type}. You completed ${Math.round(distanceRatio * 100)}% of the assigned distance.`;
+  }
 
-  if (avgHrRatio && avgHrRatio > 0.86 && paceVsEasy > 1.02) {
+  if (avgHrRatio && avgHrRatio > 0.86 && paceVsEasy > 1.02 && !context.difficult) {
     volume = 0.94;
     pace = 1.03;
     note += " That looks harder than planned, so future mileage is eased slightly and pace targets relax.";
+  } else if (avgHrRatio && avgHrRatio > 0.86 && context.difficult) {
+    volume = 0.98;
+    pace = 1.01;
+    note += " Effort was high, but heat or hills explain part of that cost, so I am only making a small adjustment rather than overreacting.";
   } else if (avgHrRatio && avgHrRatio < 0.76 && paceVsEasy < 0.98 && recentMileage >= targetMileage) {
     volume = 1.03;
     pace = 0.98;
@@ -440,6 +475,38 @@ function performanceAdjustment(settings = collectSettings(), fitness = fitnessFr
     volume,
     pace,
     note,
+  };
+}
+
+function environmentalContext(activity) {
+  const tempText = activity.avgTempF ? `${Math.round(activity.avgTempF)}F` : "temperature unavailable";
+  const ascentPerMile = activity.ascentFeet ? activity.ascentFeet / Math.max(0.1, activity.miles) : 0;
+  const hillText = activity.ascentFeet ? `${Math.round(activity.ascentFeet)} ft gained (${Math.round(ascentPerMile)} ft/mi)` : "hill data unavailable";
+  const hot = activity.avgTempF && activity.avgTempF >= 70;
+  const hilly = ascentPerMile >= 80;
+  const flags = [];
+  if (hot) flags.push("heat likely raised heart rate");
+  if (hilly) flags.push("hills made the pace more expensive");
+  return {
+    difficult: Boolean(hot || hilly),
+    summary: `Conditions considered: ${tempText}; ${hillText}.${flags.length ? ` ${flags.join("; ")}.` : ""}`,
+  };
+}
+
+function postmortemFor(activity, workoutItem, adjustment) {
+  const pace = activity.seconds / Math.max(0.1, activity.miles);
+  const distanceRatio = activity.miles / Math.max(0.1, workoutItem.miles);
+  const hrText = activity.avgHr ? `Average HR was ${activity.avgHr} bpm${activity.maxHr ? `, peaking at ${activity.maxHr} bpm` : ""}.` : "Heart-rate data was not available.";
+  const context = environmentalContext(activity);
+  const completionText = distanceRatio >= 0.95
+    ? "You completed the assigned distance."
+    : distanceRatio >= 0.75
+      ? "You got most of the work done, but I am treating it as a partial completion."
+      : "This was far short of the assignment, so I am protecting the next few workouts.";
+  const tone = distanceRatio < 0.75 ? "risk" : adjustment.volume < 0.98 || adjustment.pace > 1.01 ? "watch" : "good";
+  return {
+    tone,
+    text: `${workoutItem.type}: ${activity.miles.toFixed(2)} miles in ${formatTime(activity.seconds)} (${formatPace(pace)}). ${hrText} ${context.summary} ${completionText} ${adjustment.note}`,
   };
 }
 
@@ -485,6 +552,16 @@ function renderAssessment() {
 }
 
 function renderActivities() {
+  if (state.profileLocked && state.plan.length) {
+    els.activityList.innerHTML = `
+      <div class="activity-card compact">
+        <strong>${state.activities.length} workouts available in the background</strong>
+        <span>${state.importReport || "Use a workout card's completion button to attach the Garmin file for that run."}</span>
+      </div>
+    `;
+    return;
+  }
+
   if (!state.activities.length) {
     els.activityList.innerHTML = `
       <div class="activity-card">
@@ -525,6 +602,7 @@ function renderPlan() {
     return;
   }
 
+  refreshSavedPlanCoaching();
   els.planNote.textContent = "Saved calendar plan. Import the newest workout when you come back, and future workouts adapt from performance.";
   els.planGrid.replaceChildren(...state.plan.map((week) => {
     const section = document.createElement("section");
@@ -539,6 +617,32 @@ function renderPlan() {
     section.append(header, workouts);
     return section;
   }));
+}
+
+function refreshSavedPlanCoaching() {
+  const settings = state.settings?.race ? state.settings : collectSettings();
+  const fitness = fitnessFromInputs(settings);
+  const hrModel = heartRateModel(settings);
+  state.plan.forEach((week) => {
+    week.workouts.forEach((item) => {
+      if (item.status === "complete") return;
+      if (item.type === "Intervals" && !item.detail.includes(" x ")) {
+        const interval = intervalPrescription(item.week || week.week, settings, fitness);
+        item.detail = interval.detail;
+        item.pace = interval.pace;
+        item.hr = hrModel.zones.interval;
+      }
+      if (item.type === "Tempo" && !item.detail.includes(" x ")) {
+        item.detail = tempoPrescription(item.week || week.week, fitness);
+        item.pace = formatPace(fitness.tempoPace);
+        item.hr = hrModel.zones.tempo;
+      }
+      if (item.targetMode === "hr" && item.type === "Easy") item.hr = hrModel.zones.easy;
+      if (item.targetMode === "hr" && item.type === "Long run") item.hr = hrModel.zones.long;
+      if (item.targetMode === "hr" && item.type === "Recovery") item.hr = hrModel.zones.recovery;
+      if (item.type === "Steady") item.hr = hrModel.zones.steady;
+    });
+  });
 }
 
 function renderWorkout(item) {
@@ -564,6 +668,25 @@ function renderWorkout(item) {
   const actions = document.createElement("div");
   actions.className = "workout-actions";
 
+  const completeLabel = document.createElement("label");
+  completeLabel.className = "complete-upload";
+  completeLabel.textContent = item.status === "complete" ? "Completed with Garmin file" : "Mark completed";
+  const completeInput = document.createElement("input");
+  completeInput.type = "file";
+  completeInput.accept = ".fit,.tcx,.gpx,.xml,.csv";
+  completeInput.disabled = item.status === "complete";
+  completeInput.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      state.importReport = "A Garmin workout file is required before a workout can be marked complete.";
+      render();
+      return;
+    }
+    await completeWorkoutWithFile(item, file);
+  });
+  completeLabel.append(completeInput);
+
   const skipped = document.createElement("button");
   skipped.type = "button";
   skipped.textContent = "Mark skipped";
@@ -574,15 +697,43 @@ function renderWorkout(item) {
     render();
   });
 
-  actions.append(skipped);
+  actions.append(completeLabel, skipped);
   card.append(actions);
   return card;
 }
 
-function adaptFutureWorkouts() {
+async function completeWorkoutWithFile(item, file) {
+  let activity = null;
+  try {
+    activity = await parseActivity(file);
+  } catch {
+    activity = null;
+  }
+  if (!activity) {
+    state.importReport = "I could not read that workout file, so I did not mark the workout complete.";
+    save();
+    render();
+    return;
+  }
+
+  mergeActivities([activity]);
+  item.status = "complete";
+  item.completedActivityKey = activityKey(activity);
   const settings = state.settings?.race ? state.settings : collectSettings();
   const fitness = fitnessFromInputs(settings);
-  const adjustment = performanceAdjustment(settings, fitness);
+  const adjustment = performanceAdjustment(settings, fitness, activity, item);
+  state.lastPostmortem = postmortemFor(activity, item, adjustment);
+  state.performanceNote = adjustment.note;
+  adaptFutureWorkouts(adjustment);
+  state.importReport = "Workout completed from Garmin file. Postmortem is shown in Plan Strategy.";
+  save();
+  render();
+}
+
+function adaptFutureWorkouts(existingAdjustment = null) {
+  const settings = state.settings?.race ? state.settings : collectSettings();
+  const fitness = fitnessFromInputs(settings);
+  const adjustment = existingAdjustment || performanceAdjustment(settings, fitness);
   state.plan.forEach((week) => {
     week.workouts.forEach((item) => {
       if (item.status !== "planned") return;
@@ -708,6 +859,7 @@ function parseXmlActivity(name, text) {
   const parserError = doc.querySelector("parsererror");
   if (parserError) return null;
   const distanceNodes = [...doc.querySelectorAll("DistanceMeters")];
+  const altitudeNodes = [...doc.querySelectorAll("AltitudeMeters, ele")];
   const timeNodes = [...doc.querySelectorAll("Time, time")];
   const hrNodes = [...doc.querySelectorAll("HeartRateBpm Value, hr")];
   const lastDistance = Number(distanceNodes.at(-1)?.textContent || 0);
@@ -716,9 +868,10 @@ function parseXmlActivity(name, text) {
   const seconds = Number.isFinite(firstTime) && Number.isFinite(lastTime) ? Math.max(1, (lastTime - firstTime) / 1000) : 0;
   const avgHr = Math.round(hrNodes.reduce((sum, node) => sum + Number(node.textContent || 0), 0) / Math.max(1, hrNodes.length));
   const maxHr = Math.max(0, ...hrNodes.map((node) => Number(node.textContent || 0)).filter((value) => value < 255));
+  const elevations = altitudeNodes.map((node) => Number(node.textContent || 0)).filter((value) => Number.isFinite(value));
   const miles = lastDistance ? lastDistance / 1609.344 : estimateMilesFromGpx(doc);
   if (!miles || !seconds) return null;
-  return { name, date: timeNodes[0]?.textContent?.slice(0, 10) || "", miles, seconds, avgHr: avgHr || null, maxHr: maxHr || null };
+  return { name, date: timeNodes[0]?.textContent?.slice(0, 10) || "", miles, seconds, avgHr: avgHr || null, maxHr: maxHr || null, ascentFeet: calculateAscentFeet(elevations) };
 }
 
 function parseFitActivity(name, buffer) {
@@ -796,6 +949,11 @@ function parseFitActivity(name, buffer) {
   const heartRates = records.map((record) => record[3]).filter((value) => value && value < 255);
   const avgHr = session?.[16] || Math.round(heartRates.reduce((sum, value) => sum + value, 0) / Math.max(1, heartRates.length)) || null;
   const maxHr = session?.[17] || Math.max(0, ...heartRates) || null;
+  const elevations = records.map((record) => fitAltitude(record[78] ?? record[2])).filter((value) => value !== null);
+  const ascentFeet = session?.[22] ? session[22] * 3.28084 : calculateAscentFeet(elevations);
+  const temperatures = records.map((record) => record[13]).filter((value) => Number.isFinite(value) && value > -30 && value < 60);
+  const avgTempC = session?.[14] ?? (temperatures.length ? temperatures.reduce((sum, value) => sum + value, 0) / temperatures.length : null);
+  const avgTempF = avgTempC === null ? null : avgTempC * 9 / 5 + 32;
   const sport = session?.[5];
 
   if (!totalDistance || !seconds) return null;
@@ -807,8 +965,25 @@ function parseFitActivity(name, buffer) {
     seconds,
     avgHr,
     maxHr,
+    ascentFeet,
+    avgTempF,
     sport,
   };
+}
+
+function fitAltitude(raw) {
+  if (!Number.isFinite(raw) || raw === 0xffff) return null;
+  return raw / 5 - 500;
+}
+
+function calculateAscentFeet(elevations) {
+  if (!elevations.length) return null;
+  let ascentMeters = 0;
+  for (let index = 1; index < elevations.length; index += 1) {
+    const gain = elevations[index] - elevations[index - 1];
+    if (gain > 1) ascentMeters += gain;
+  }
+  return ascentMeters ? ascentMeters * 3.28084 : null;
 }
 
 function readFitValue(view, offset, field, littleEndian) {

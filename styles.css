@@ -93,9 +93,12 @@ h2 {
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
     "setup"
-    "import"
     "assessment"
     "plan";
+}
+
+.workspace.profile-locked .import-panel {
+  display: none;
 }
 
 .panel {
@@ -330,6 +333,10 @@ button.primary {
   background: #fbfdfb;
 }
 
+.activity-card.compact {
+  grid-column: 1 / -1;
+}
+
 .activity-card strong {
   display: block;
   margin-bottom: 4px;
@@ -392,19 +399,42 @@ button.primary {
 }
 
 .workout-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
   gap: 6px;
 }
 
-.workout-actions button {
+.workout-actions button,
+.complete-upload {
   min-height: 30px;
-  flex: 1;
   padding: 0 8px;
   font-size: 0.78rem;
 }
 
-.workout-actions button:nth-child(1) {
+.complete-upload {
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--green);
+  cursor: pointer;
+}
+
+.complete-upload input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.workout-actions button {
   background: var(--red);
+}
+
+.status-complete .complete-upload {
+  background: var(--muted);
+  cursor: default;
 }
 
 .status-complete {
